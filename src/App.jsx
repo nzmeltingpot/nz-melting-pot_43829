@@ -19,6 +19,7 @@ const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'));
 const PaymentCancelled = lazy(() => import('./pages/PaymentCancelled'));
 const BookTickets = lazy(() => import('./pages/BookTickets'));
 const BookingSuccess = lazy(() => import('./pages/BookingSuccess'));
+const TicketPreview = lazy(() => import('./pages/TicketPreview'));
 
 /**
  * RouteScrollManager handles scroll position on navigation.
@@ -89,6 +90,7 @@ export default function App() {
             <Route path="/payment-cancelled" element={<PaymentCancelled />} />
             <Route path="/book-tickets" element={<BookTickets />} />
             <Route path="/booking-success" element={<BookingSuccess />} />
+            <Route path="/ticket-preview" element={<TicketPreview />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
