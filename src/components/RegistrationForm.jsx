@@ -12,10 +12,10 @@ const SETTINGS_TABLE_ID = 79250;
  * "Inclusive" means the date itself is the LAST valid day at that rate.
  */
 const PRICING = {
-  EARLY_BIRD_RATE: 10,                  // NZD per participant
-  STANDARD_RATE: 15,                     // NZD per participant
-  EARLY_BIRD_END: '2026-06-01',         // Last day at $10 (inclusive)
-  REGISTRATION_CLOSE: '2026-07-01'      // Last day to register (inclusive)
+  EARLY_BIRD_RATE: 10, // NZD per participant
+  STANDARD_RATE: 15, // NZD per participant
+  EARLY_BIRD_END: '2026-06-15', // Last day at $10 (inclusive)
+  REGISTRATION_CLOSE: '2026-07-01' // Last day to register (inclusive)
 };
 
 /**
@@ -100,11 +100,13 @@ const CATEGORY_PARTICIPANTS = {
 const AUCKLAND_TIMEZONE = 'Pacific/Auckland';
 
 /**
- * Get the current date/time formatted in Auckland timezone
+ * Get the current date/time formatted in Auckland timezone.
+ * Uses en-CA locale to produce unambiguous YYYY-MM-DD HH:MM:SS format,
+ * avoiding the dd/mm/yyyy ↔ mm/dd/yyyy ambiguity of the en-NZ locale.
  */
 function getAucklandTimestamp() {
   const now = new Date();
-  return now.toLocaleString('en-NZ', {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: AUCKLAND_TIMEZONE,
     year: 'numeric',
     month: '2-digit',
@@ -114,6 +116,8 @@ function getAucklandTimestamp() {
     second: '2-digit',
     hour12: false
   });
+  // en-CA produces "YYYY-MM-DD, HH:MM:SS" — normalise to "YYYY-MM-DD HH:MM:SS"
+  return fmt.format(now).replace(',', '');
 }
 
 /**
@@ -387,51 +391,51 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
             For any queries, please <a href="/contact" style={{ color: '#ffd700', fontWeight: 600 }}>contact us</a>.
           </p>
         </div>
-      </div>
-    );
+      </div>);
+
   }
 
   return (
     <div className="form-card">
       {/* Pricing banner */}
       <div style={{
-        background: pricing.type === 'early_bird'
-          ? 'linear-gradient(135deg, rgba(255, 215, 0, 0.18), rgba(255, 165, 0, 0.12))'
-          : 'rgba(255, 255, 255, 0.10)',
-        border: pricing.type === 'early_bird'
-          ? '1.5px solid rgba(255, 200, 50, 0.55)'
-          : '1.5px solid rgba(255, 255, 255, 0.20)',
+        background: pricing.type === 'early_bird' ?
+        'linear-gradient(135deg, rgba(255, 215, 0, 0.18), rgba(255, 165, 0, 0.12))' :
+        'rgba(255, 255, 255, 0.10)',
+        border: pricing.type === 'early_bird' ?
+        '1.5px solid rgba(255, 200, 50, 0.55)' :
+        '1.5px solid rgba(255, 255, 255, 0.20)',
         borderRadius: 10,
         padding: '14px 18px',
         marginBottom: 22,
         textAlign: 'center',
         color: '#fff'
       }}>
-        {pricing.type === 'early_bird' ? (
-          <>
+        {pricing.type === 'early_bird' ?
+        <>
             <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.3px' }}>
               🎉 Early Bird Rate — ${PRICING.EARLY_BIRD_RATE} per participant
             </p>
-            <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
+            <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }} className="">
               Early bird ends {formatNZ(PRICING.EARLY_BIRD_END)}
-              {typeof pricing.daysToEarlyBirdEnd === 'number' && pricing.daysToEarlyBirdEnd >= 0 && (
-                <> ({pricing.daysToEarlyBirdEnd === 0 ? 'today is the last day' : `${pricing.daysToEarlyBirdEnd} day${pricing.daysToEarlyBirdEnd === 1 ? '' : 's'} left`}) — rate becomes ${PRICING.STANDARD_RATE}/participant after</>
-              )}
+              {typeof pricing.daysToEarlyBirdEnd === 'number' && pricing.daysToEarlyBirdEnd >= 0 &&
+            <> ({pricing.daysToEarlyBirdEnd === 0 ? 'today is the last day' : `${pricing.daysToEarlyBirdEnd} day${pricing.daysToEarlyBirdEnd === 1 ? '' : 's'} left`}) — rate becomes ${PRICING.STANDARD_RATE}/participant after</>
+            }
             </p>
-          </>
-        ) : (
-          <>
+          </> :
+
+        <>
             <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>
               Standard Rate — ${PRICING.STANDARD_RATE} per participant
             </p>
             <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
               Registrations close {formatNZ(PRICING.REGISTRATION_CLOSE)}
-              {typeof pricing.daysToClose === 'number' && pricing.daysToClose >= 0 && (
-                <> ({pricing.daysToClose === 0 ? 'today is the last day' : `${pricing.daysToClose} day${pricing.daysToClose === 1 ? '' : 's'} left`})</>
-              )}
+              {typeof pricing.daysToClose === 'number' && pricing.daysToClose >= 0 &&
+            <> ({pricing.daysToClose === 0 ? 'today is the last day' : `${pricing.daysToClose} day${pricing.daysToClose === 1 ? '' : 's'} left`})</>
+            }
             </p>
           </>
-        )}
+        }
       </div>
 
       <form className="registration-form" name="registration" onSubmit={handleSubmit} noValidate>
@@ -538,7 +542,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
 
           {/* Song Title */}
           <div className="form-group">
-            <label htmlFor={`${idPrefix}-song`}>Song / Piece Title *</label>
+            <label htmlFor={`${idPrefix}-song`} className="">Name of Song / Piece *</label>
             <input
               type="text"
               id={`${idPrefix}-song`}
@@ -553,7 +557,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
 
           {/* Performance Type - Vocal or Instrumental */}
           <div className="form-group">
-            <label htmlFor={`${idPrefix}-performance-type`}>Performance Type *</label>
+            <label htmlFor={`${idPrefix}-performance-type`} className="">Vocal  or Instrumental *</label>
             <select
               id={`${idPrefix}-performance-type`}
               name="performance_type"
@@ -733,11 +737,11 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
               cursor: isSubmitting ? 'not-allowed' : 'pointer'
             }}>
 
-            {isSubmitting
-              ? 'Redirecting to payment…'
-              : isFormComplete
-                ? `Pay & Register — $${totalFee} NZD`
-                : 'Pay & Register'}
+            {isSubmitting ?
+            'Redirecting to payment…' :
+            isFormComplete ?
+            `Pay & Register — $${totalFee} NZD` :
+            'Pay & Register'}
           </button>
         </div>
       </form>
