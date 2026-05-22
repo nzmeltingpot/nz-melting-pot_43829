@@ -163,7 +163,7 @@ export default function TalentShowcase() {
               }}>
 
               <a
-                href="/posters/talent-showcase-2026-poster.png"
+                href="/posters/talent-showcase-2026-poster.jpg"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Open the full-size Musical Talent Showcase 2026 poster in a new tab"
@@ -188,7 +188,7 @@ export default function TalentShowcase() {
                 }}>
 
                 <img
-                  src="/posters/talent-showcase-2026-poster.png"
+                  src="/posters/talent-showcase-2026-poster.jpg"
                   alt="Musical Talent Showcase 2026 poster — Saturday 18 July, Blockhouse Bay Community Centre, Auckland"
                   loading="lazy"
                   width="800"
