@@ -10,12 +10,12 @@ const EVENT_VENUE = 'Blockhouse Bay Community Centre, 524 Blockhouse Bay Road, B
 
 /** Minimal HTML escape — protects against template injection from user-supplied fields. */
 function escapeHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  return String(s ?? '').
+  replace(/&/g, '&amp;').
+  replace(/</g, '&lt;').
+  replace(/>/g, '&gt;').
+  replace(/"/g, '&quot;').
+  replace(/'/g, '&#39;');
 }
 
 /** Capitalise first letter (e.g. "trio" → "Trio") */
@@ -29,6 +29,84 @@ function formatNZ(isoDate) {
   if (!isoDate || typeof isoDate !== 'string') return isoDate || '';
   const m = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : isoDate;
+}
+
+/**
+ * Convert a YYYY-MM-DD [HH:MM[:SS]] timestamp to DD/MM/YYYY HH:MM (NZ display format).
+ * Also handles the ambiguous dd/mm/yyyy strings by returning them as-is.
+ */
+function formatNZDateTime(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return dateStr || '';
+  // YYYY-MM-DD with optional time component
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})[\s,T]+(\d{2}):(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]} NZT`;
+  // Already in dd/mm/yyyy format — return as-is
+  const nz = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (nz) return dateStr;
+  return formatNZ(dateStr);
+}
+
+/**
+ * Generate a fake-but-realistic-looking QR code as an inline HTML table grid.
+ * Purely decorative — not scannable. Deterministically derived from codeStr so each
+ * ticket gets a consistent (but visually unique) pattern.
+ * Returns a table element that can be embedded inside a <td>.
+ */
+function generateFakeQRCode(codeStr, darkColor) {
+  const barColor = darkColor || '#1a1a1a';
+  const size = 21; // 21×21 grid (matches standard QR visual size)
+  const cellPx = 5; // px per module
+
+  // Derive a deterministic seed from codeStr
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < codeStr.length; i++) {
+    hash ^= codeStr.charCodeAt(i);
+    hash = hash * 0x01000193 >>> 0;
+  }
+
+  // Build the grid
+  const grid = [];
+  for (let r = 0; r < size; r++) {
+    grid[r] = [];
+    for (let c = 0; c < size; c++) {
+      // Top-left finder pattern (rows 0-6, cols 0-6)
+      if (r <= 6 && c <= 6) {
+        if (r === 0 || r === 6 || c === 0 || c === 6) grid[r][c] = 1;else
+        if (r === 1 || r === 5 || c === 1 || c === 5) grid[r][c] = 0;else
+        grid[r][c] = 1;
+      }
+      // Top-right finder pattern (rows 0-6, cols 14-20)
+      else if (r <= 6 && c >= 14) {
+        const lc = c - 14;
+        if (r === 0 || r === 6 || lc === 0 || lc === 6) grid[r][c] = 1;else
+        if (r === 1 || r === 5 || lc === 1 || lc === 5) grid[r][c] = 0;else
+        grid[r][c] = 1;
+      }
+      // Bottom-left finder pattern (rows 14-20, cols 0-6)
+      else if (r >= 14 && c <= 6) {
+        const lr = r - 14;
+        if (lr === 0 || lr === 6 || c === 0 || c === 6) grid[r][c] = 1;else
+        if (lr === 1 || lr === 5 || c === 1 || c === 5) grid[r][c] = 0;else
+        grid[r][c] = 1;
+      }
+      // Data area — deterministic pseudo-random from hash + position
+      else {
+        const seed = ((hash ^ r * 0x9e3779b9 ^ c * 0x6c62272e) >>> 0) * 2654435761 >>> 0;
+        grid[r][c] = seed % 2;
+      }
+    }
+  }
+
+  const totalPx = size * cellPx; // 105px
+
+  const rows = grid.map((row) => {
+    const cells = row.map((dark) =>
+    `<td style="padding:0;width:${cellPx}px;height:${cellPx}px;background:${dark ? barColor : '#fff'};font-size:0;line-height:0;"> </td>`
+    ).join('');
+    return `<tr style="height:${cellPx}px;">${cells}</tr>`;
+  }).join('');
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;border-collapse:collapse;width:${totalPx}px;height:${totalPx}px;border:2px solid ${barColor};padding:4px;background:#fff;">${rows}</table>`;
 }
 
 /**
@@ -78,13 +156,21 @@ function buildSingleTicket({ participantName, code, category, performanceType, s
       </td>
     </tr>
 
-    <!-- Code highlight -->
+    <!-- Code highlight + QR code -->
     <tr>
-      <td style="padding:14px 22px;text-align:center;background:#FBF5ED;">
-        <div style="font-size:11px;color:#7B1E2D;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;font-weight:600;">Registration Code</div>
-        <div style="font-size:26px;font-weight:bold;color:#7B1E2D;letter-spacing:3px;font-family:'Courier New',monospace;">
-          ${escapeHtml(code)}
-        </div>
+      <td style="padding:14px 22px 14px 22px;background:#FBF5ED;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+          <tr>
+            <td style="vertical-align:middle;width:121px;text-align:center;">
+              ${generateFakeQRCode(code, '#7B1E2D')}
+              <div style="font-size:7px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:4px;">${escapeHtml(code)}</div>
+            </td>
+            <td style="vertical-align:middle;padding-left:16px;text-align:left;">
+              <div style="font-size:10px;color:#7B1E2D;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-weight:600;">Registration Code</div>
+              <div style="font-size:24px;font-weight:bold;color:#7B1E2D;letter-spacing:4px;font-family:'Courier New',monospace;line-height:1.2;">${escapeHtml(code)}</div>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
 
@@ -127,23 +213,23 @@ function buildSingleTicket({ participantName, code, category, performanceType, s
  */
 export function buildTicketsHtml({ formData, code }) {
   const participants = [
-    formData.participant_name,
-    formData.participant_2_name,
-    formData.participant_3_name,
-    formData.participant_4_name
-  ].filter((name) => name && name.trim() !== '');
+  formData.participant_name,
+  formData.participant_2_name,
+  formData.participant_3_name,
+  formData.participant_4_name].
+  filter((name) => name && name.trim() !== '');
 
   const totalTickets = participants.length;
   return participants.map((name, i) =>
-    buildSingleTicket({
-      participantName: name,
-      code,
-      category: formData.category,
-      performanceType: formData.performance_type,
-      songTitle: formData.song_title,
-      ticketNumber: i + 1,
-      totalTickets
-    })
+  buildSingleTicket({
+    participantName: name,
+    code,
+    category: formData.category,
+    performanceType: formData.performance_type,
+    songTitle: formData.song_title,
+    ticketNumber: i + 1,
+    totalTickets
+  })
   ).join('\n');
 }
 
@@ -162,14 +248,14 @@ export function buildParticipantConfirmationEmail({ recipientName, code, amountP
 
   const ticketsHtml = formData ? buildTicketsHtml({ formData, code }) : '';
   const ticketCount = formData ? [
-    formData.participant_name,
-    formData.participant_2_name,
-    formData.participant_3_name,
-    formData.participant_4_name
-  ].filter((n) => n && n.trim()).length : 0;
+  formData.participant_name,
+  formData.participant_2_name,
+  formData.participant_3_name,
+  formData.participant_4_name].
+  filter((n) => n && n.trim()).length : 0;
 
   // Sign-off line is editable via Admin > Content tab; falls back to default.
-  const closing = (siteSettings && siteSettings.email_closing) || 'Warm regards,\nThe NZ Melting Pot Team';
+  const closing = siteSettings && siteSettings.email_closing || 'Warm regards,\nThe NZ Melting Pot Team';
 
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px; color: #2d3748; background:#fafaf7;">
@@ -205,9 +291,9 @@ export function buildParticipantConfirmationEmail({ recipientName, code, amountP
           🎫 Your ${ticketCount === 1 ? 'Ticket' : `${ticketCount} Tickets`}
         </h3>
         <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 8px 0;">
-          ${ticketCount === 1
-            ? 'Please bring this ticket on show day (printed or on your phone).'
-            : `One ticket per participant. Please bring all ${ticketCount} on show day.`}
+          ${ticketCount === 1 ?
+  'Please bring this ticket on show day (printed or on your phone).' :
+  `One ticket per participant. Please bring all ${ticketCount} on show day.`}
         </p>
         ${ticketsHtml}
       ` : ''}
@@ -252,12 +338,48 @@ export function buildParticipantConfirmationEmail({ recipientName, code, amountP
       <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;">
         Musical Talent Showcase 2026 · NZ Melting Pot<br/>
         ${EVENT_DATE} · ${EVENT_VENUE}<br/>
-        <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
+        <a href="${SITE_URL}" style="color:#9ca3af;">[www.nzmeltingpot.com](https://www.nzmeltingpot.com)</a>
       </p>
     </div>
   `;
 
-  return { subject, html };
+  const participantLines = formData ?
+  [formData.participant_name, formData.participant_2_name, formData.participant_3_name, formData.participant_4_name].
+  filter((n) => n && n.trim()).
+  map((n, i) => `  ${i + 1}. ${n}`).
+  join('\n') :
+  `  1. ${recipientName}`;
+
+  const text = [
+  `Registration Confirmed — Musical Talent Showcase 2026 (${code})`,
+  ``,
+  `Dear ${recipientName},`,
+  ``,
+  `Payment received — your registration is confirmed!`,
+  ``,
+  `Registration Code: ${code}`,
+  `Participant(s):`,
+  participantLines,
+  `Amount Paid:     $${amountPaid} NZD`,
+  ``,
+  `Event:  Musical Talent Showcase 2026`,
+  `Date:   ${EVENT_DATE}`,
+  `Venue:  ${EVENT_VENUE}`,
+  ``,
+  `WHAT HAPPENS NEXT`,
+  `- We will be in touch closer to the event with rehearsal details and show-day logistics.`,
+  `- Please save this email — your registration code is ${code}.`,
+  `- To update any details, reply to this email or visit ${SITE_URL}/contact`,
+  ``,
+  closing,
+  ``,
+  `---`,
+  `Musical Talent Showcase 2026 · NZ Melting Pot`,
+  `${EVENT_DATE} · Blockhouse Bay Community Centre`,
+  SITE_URL].
+  join('\n');
+
+  return { subject, html, text };
 }
 
 /**
@@ -268,28 +390,28 @@ export function buildAdminNotificationEmail({ formData, code, amountPaid, sessio
   const subject = `New paid registration — ${code}`;
 
   const rows = [
-    ['Registration Code', code],
-    ['Status', '✅ PAID'],
-    ['Amount Paid', `$${amountPaid} NZD`],
-    ['Rate', formData.rate_type === 'early_bird' ? `Early Bird ($${formData.rate_per_participant}/participant)` : `Standard ($${formData.rate_per_participant}/participant)`],
-    ['Stripe Session', sessionId || '—'],
-    ['Submitted At', formData.submission_timestamp || '—'],
-    ['Leader Name', formData.participant_name],
-    ['Date of Birth', formatNZ(formData.date_of_birth)],
-    ['Email', formData.email],
-    ['Phone', formData.phone],
-    ['Category', formData.category],
-    ['Performance Type', formData.performance_type],
-    ['Song / Piece', formData.song_title],
-    ['Number of Performers', formData.num_performers],
-    ['Participant 2', formData.participant_2_name || '—'],
-    ['Participant 3', formData.participant_3_name || '—'],
-    ['Participant 4', formData.participant_4_name || '—'],
-    ['Heard About', formData.heard_about]
-  ];
+  ['Registration Code', code],
+  ['Status', '✅ PAID'],
+  ['Amount Paid', `$${amountPaid} NZD`],
+  ['Rate', formData.rate_type === 'early_bird' ? `Early Bird ($${formData.rate_per_participant}/participant)` : `Standard ($${formData.rate_per_participant}/participant)`],
+  ['Stripe Session', sessionId || '—'],
+  ['Submitted At', formatNZDateTime(formData.submission_timestamp) || '—'],
+  ['Leader Name', formData.participant_name],
+  ['Date of Birth', formatNZ(formData.date_of_birth)],
+  ['Email', formData.email],
+  ['Phone', formData.phone],
+  ['Category', formData.category],
+  ['Performance Type', formData.performance_type],
+  ['Song / Piece', formData.song_title],
+  ['Number of Performers', formData.num_performers],
+  ['Participant 2', formData.participant_2_name || '—'],
+  ['Participant 3', formData.participant_3_name || '—'],
+  ['Participant 4', formData.participant_4_name || '—'],
+  ['Heard About', formData.heard_about]];
+
 
   const tableRows = rows.map(([k, v]) =>
-    `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;width:180px;">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#1f2937;">${escapeHtml(String(v))}</td></tr>`
+  `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;width:180px;">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#1f2937;">${escapeHtml(String(v))}</td></tr>`
   ).join('');
 
   const html = `
@@ -315,7 +437,7 @@ export function buildAdminNotificationEmail({ formData, code, amountPaid, sessio
  * Distinct from performer tickets — uses gold/black palette and an "ADMIT ONE" badge.
  */
 function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, totalTickets, buyerName }) {
-  const displayName = (attendeeName && attendeeName.trim()) || buyerName;
+  const displayName = attendeeName && attendeeName.trim() || buyerName;
 
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;margin:18px auto;border-collapse:separate;background:#FFFCF8;border:2px dashed #c9a227;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
@@ -363,13 +485,21 @@ function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, tot
       </td>
     </tr>
 
-    <!-- Booking ref -->
+    <!-- Booking ref + QR code -->
     <tr>
-      <td style="padding:14px 22px;text-align:center;background:#FBF5ED;">
-        <div style="font-size:11px;color:#7B1E2D;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;font-weight:600;">Booking Reference</div>
-        <div style="font-size:22px;font-weight:bold;color:#7B1E2D;letter-spacing:3px;font-family:'Courier New',monospace;">
-          ${escapeHtml(bookingRef)}
-        </div>
+      <td style="padding:14px 22px 14px 22px;background:#FBF5ED;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+          <tr>
+            <td style="vertical-align:middle;width:121px;text-align:center;">
+              ${generateFakeQRCode(bookingRef, '#1E1915')}
+              <div style="font-size:7px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:4px;">${escapeHtml(bookingRef)}</div>
+            </td>
+            <td style="vertical-align:middle;padding-left:16px;text-align:left;">
+              <div style="font-size:10px;color:#c9a227;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-weight:600;">Booking Reference</div>
+              <div style="font-size:22px;font-weight:bold;color:#1E1915;letter-spacing:4px;font-family:'Courier New',monospace;line-height:1.2;">${escapeHtml(bookingRef)}</div>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
 
@@ -409,13 +539,13 @@ function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, tot
 export function buildAudienceTicketsHtml({ bookingData, attendeeNamesArr }) {
   const total = bookingData.ticket_count;
   return Array.from({ length: total }, (_, i) =>
-    buildSingleAudienceTicket({
-      attendeeName: attendeeNamesArr[i] || '',
-      bookingRef: bookingData.booking_ref,
-      ticketNumber: i + 1,
-      totalTickets: total,
-      buyerName: bookingData.buyer_name
-    })
+  buildSingleAudienceTicket({
+    attendeeName: attendeeNamesArr[i] || '',
+    bookingRef: bookingData.booking_ref,
+    ticketNumber: i + 1,
+    totalTickets: total,
+    buyerName: bookingData.buyer_name
+  })
   ).join('\n');
 }
 
@@ -459,9 +589,9 @@ export function buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr }) {
         🎟️ Your ${ticketCount === 1 ? 'Ticket' : `${ticketCount} Tickets`}
       </h3>
       <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 8px 0;">
-        ${ticketCount === 1
-          ? 'Please bring this ticket on the day (printed or on your phone).'
-          : `Please bring all ${ticketCount} tickets on the day.`}
+        ${ticketCount === 1 ?
+  'Please bring this ticket on the day (printed or on your phone).' :
+  `Please bring all ${ticketCount} tickets on the day.`}
       </p>
       ${ticketsHtml}
 
@@ -470,7 +600,7 @@ export function buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr }) {
       </h3>
       <ul style="font-size:14px;line-height:1.7;color:#374151;padding-left:20px;margin:0 0 16px 0;">
         <li>Doors open at the time announced closer to the event.</li>
-        <li>A live show featuring soloists, duets and trios — vocalists and instrumentalists from across Auckland.</li>
+        <li>A live show with vocalists, instrumentalists, duos and groups, judged by a community panel.</li>
         <li>Family-friendly. All ages welcome.</li>
       </ul>
 
@@ -480,12 +610,44 @@ export function buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr }) {
       <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;">
         Musical Talent Showcase 2026 · NZ Melting Pot<br/>
         ${EVENT_DATE} · ${EVENT_VENUE}<br/>
-        <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
+        <a href="${SITE_URL}" style="color:#9ca3af;">[www.nzmeltingpot.com](https://www.nzmeltingpot.com)</a>
       </p>
     </div>
   `;
 
-  return { subject, html };
+  const attendeeList = attendeeNamesArr.
+  map((n, i) => `  ${i + 1}. ${n && n.trim() ? n : bookingData.buyer_name}`).
+  join('\n');
+
+  const text = [
+  `Tickets Confirmed — Musical Talent Showcase 2026 (${bookingData.booking_ref})`,
+  ``,
+  `Dear ${bookingData.buyer_name},`,
+  ``,
+  `Payment received — your ${ticketCount === 1 ? 'ticket is' : 'tickets are'} confirmed!`,
+  ``,
+  `Booking Reference: ${bookingData.booking_ref}`,
+  `Tickets:           ${ticketCount}`,
+  `Total Paid:        $${bookingData.total_amount} NZD`,
+  ``,
+  `Attendee(s):`,
+  attendeeList,
+  ``,
+  `Event:  Musical Talent Showcase 2026`,
+  `Date:   ${EVENT_DATE}`,
+  `Venue:  ${EVENT_VENUE}`,
+  ``,
+  `Please bring your ticket(s) on the day (printed or on your phone).`,
+  ``,
+  `Warm regards,`,
+  `The NZ Melting Pot Team`,
+  ``,
+  `---`,
+  `Musical Talent Showcase 2026 · NZ Melting Pot`,
+  SITE_URL].
+  join('\n');
+
+  return { subject, html, text };
 }
 
 /**
@@ -495,23 +657,23 @@ export function buildAdminBookingNotificationEmail({ bookingData, attendeeNamesA
   const subject = `New ticket booking — ${bookingData.booking_ref} (${bookingData.ticket_count} ticket${bookingData.ticket_count === 1 ? '' : 's'})`;
 
   const rows = [
-    ['Booking Reference', bookingData.booking_ref],
-    ['Status', '✅ PAID'],
-    ['Total Paid', `$${bookingData.total_amount} NZD`],
-    ['Tickets', bookingData.ticket_count],
-    ['Buyer Name', bookingData.buyer_name],
-    ['Buyer Email', bookingData.buyer_email],
-    ['Buyer Phone', bookingData.buyer_phone || '—'],
-    ['Stripe Session', sessionId || '—'],
-    ['Booked At', bookingData.booking_timestamp || '—']
-  ];
+  ['Booking Reference', bookingData.booking_ref],
+  ['Status', '✅ PAID'],
+  ['Total Paid', `$${bookingData.total_amount} NZD`],
+  ['Tickets', bookingData.ticket_count],
+  ['Buyer Name', bookingData.buyer_name],
+  ['Buyer Email', bookingData.buyer_email],
+  ['Buyer Phone', bookingData.buyer_phone || '—'],
+  ['Stripe Session', sessionId || '—'],
+  ['Booked At', bookingData.booking_timestamp || '—']];
+
 
   attendeeNamesArr.forEach((name, idx) => {
     rows.push([`Attendee ${idx + 1}`, name || `(uses buyer's name)`]);
   });
 
   const tableRows = rows.map(([k, v]) =>
-    `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;width:180px;">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#1f2937;">${escapeHtml(String(v))}</td></tr>`
+  `<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;color:#374151;width:180px;">${escapeHtml(k)}</td><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;color:#1f2937;">${escapeHtml(String(v))}</td></tr>`
   ).join('');
 
   const html = `
