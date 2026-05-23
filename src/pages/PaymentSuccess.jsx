@@ -85,7 +85,8 @@ export default function PaymentSuccess() {
       setCode(effectiveCode);
 
       const { formData, siteSettings: stashedSettings } = pending;
-      setSiteSettings(stashedSettings || {});
+      // Stash the recipient email address so the UI can display it
+      setSiteSettings({ ...(stashedSettings || {}), _sentToEmail: formData.email });
       setAmountPaid(formData.total_fee);
 
       const localWarnings = [];
@@ -109,7 +110,7 @@ export default function PaymentSuccess() {
 
       // 2. Send participant confirmation email (includes one ticket per participant)
       try {
-        const { subject, html } = buildParticipantConfirmationEmail({
+        const { subject, html, text } = buildParticipantConfirmationEmail({
           recipientName: formData.participant_name,
           code: effectiveCode,
           amountPaid: formData.total_fee,
@@ -121,7 +122,8 @@ export default function PaymentSuccess() {
           from: 'Musical Talent Showcase <noreply@nzmeltingpot.com>',
           to: [formData.email],
           subject,
-          html
+          html,
+          text
         });
         console.log('📧 Participant email — result:', JSON.stringify(result));
         if (result?.error) {
@@ -171,16 +173,16 @@ export default function PaymentSuccess() {
       <div className="container" style={{ maxWidth: 640, width: '100%' }}>
         <div style={cardStyle}>
 
-          {status === 'processing' && (
-            <>
+          {status === 'processing' &&
+          <>
               <div style={{ fontSize: '3rem', textAlign: 'center', marginBottom: 16 }}>⏳</div>
               <h1 style={headingStyle}>Confirming your payment…</h1>
               <p style={{ textAlign: 'center', color: '#6b7280' }}>This usually takes just a moment. Please don't close this page.</p>
             </>
-          )}
+          }
 
-          {status === 'orphan' && (
-            <>
+          {status === 'orphan' &&
+          <>
               <div style={{ fontSize: '3rem', textAlign: 'center', marginBottom: 16 }}>✅</div>
               <h1 style={headingStyle}>Payment Received</h1>
               <p style={{ textAlign: 'center', lineHeight: 1.6, color: '#374151' }}>
@@ -189,10 +191,10 @@ export default function PaymentSuccess() {
                 a few minutes, please <Link to="/contact" style={linkStyle}>contact us</Link> and quote any reference you have.
               </p>
             </>
-          )}
+          }
 
-          {(status === 'success' || status === 'partial') && (
-            <>
+          {(status === 'success' || status === 'partial') &&
+          <>
               <div style={{ fontSize: '3.5rem', textAlign: 'center', marginBottom: 16 }}>🎉</div>
               <h1 style={headingStyle}>Registration Confirmed!</h1>
               <p style={{ textAlign: 'center', color: '#374151', fontSize: '1.05rem', lineHeight: 1.6 }}>
@@ -207,25 +209,28 @@ export default function PaymentSuccess() {
                 <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#7B1E2D', letterSpacing: '3px' }}>
                   {code}
                 </div>
-                {amountPaid > 0 && (
-                  <div style={{ fontSize: '0.9rem', color: '#4b5563', marginTop: 10 }}>
+                {amountPaid > 0 &&
+              <div style={{ fontSize: '0.9rem', color: '#4b5563', marginTop: 10 }}>
                     Amount paid: <strong>${amountPaid} NZD</strong>
                   </div>
-                )}
+              }
               </div>
 
-              {warnings.length > 0 && (
-                <div style={warnBoxStyle}>
-                  {warnings.map((w, i) => (
-                    <p key={i} style={{ margin: i === 0 ? 0 : '6px 0 0 0', fontSize: '0.9rem' }}>⚠️ {w}</p>
-                  ))}
-                </div>
+              {warnings.length > 0 &&
+            <div style={warnBoxStyle}>
+                  {warnings.map((w, i) =>
+              <p key={i} style={{ margin: i === 0 ? 0 : '6px 0 0 0', fontSize: '0.9rem' }}>⚠️ {w}</p>
               )}
+                </div>
+            }
 
               <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '16px 20px', margin: '20px 0', fontSize: '0.92rem', lineHeight: 1.65, color: '#374151' }}>
                 <p style={{ margin: '0 0 8px 0', fontWeight: 600, color: '#111827' }}>What happens next?</p>
                 <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  <li>You'll receive a confirmation email with your registration code (please check spam if you don't see it).</li>
+                  <li>
+                    A confirmation email with your ticket(s) has been sent to <strong>{siteSettings?._sentToEmail || 'your email address'}</strong>.
+                    {' '}If you don't see it within a few minutes, please check your <strong>Spam</strong>, <strong>Junk</strong>, and <strong>Promotions</strong> folders.
+                  </li>
                   <li>Save your registration code — you'll need it for show-day check-in.</li>
                   <li>We'll be in touch closer to the event with rehearsal details.</li>
                 </ul>
@@ -247,12 +252,12 @@ export default function PaymentSuccess() {
                 <Link to="/" style={btnStyle}>Return to Home</Link>
               </div>
             </>
-          )}
+          }
 
         </div>
       </div>
-    </section>
-  );
+    </section>);
+
 }
 
 const cardStyle = {

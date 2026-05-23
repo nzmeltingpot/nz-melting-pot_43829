@@ -14,7 +14,7 @@ export default function BookTickets() {
   usePageMeta({
     title: 'Book Audience Tickets — Talent Showcase 2026 | NZ Melting Pot',
     description:
-      'Book your tickets for the Musical Talent Showcase 2026 in Auckland. $10 NZD per ticket, up to 10 tickets per booking. Saturday 18 July 2026.',
+    'Book your tickets for the Musical Talent Showcase 2026 in Auckland. $10 NZD per ticket, up to 10 tickets per booking. Saturday 18 July 2026.',
     path: '/book-tickets'
   });
 
@@ -25,10 +25,10 @@ export default function BookTickets() {
       <section className="page-hero" style={{ padding: '56px 20px 22px', textAlign: 'center' }}>
         <div className="container">
           <Breadcrumbs items={[
-            { label: 'Home', to: '/' },
-            { label: 'Talent Showcase', to: '/musical-talent-showcase' },
-            { label: 'Book Tickets', to: '/book-tickets' }
-          ]} />
+          { label: 'Home', to: '/' },
+          { label: 'Talent Showcase', to: '/musical-talent-showcase' },
+          { label: 'Book Tickets', to: '/book-tickets' }]
+          } />
 
           <p className="text-accent page-hero__tag" style={{ marginTop: 10 }}>Saturday 18 July 2026</p>
           <h1 className="page-hero__title" style={{ marginTop: 2 }}>
@@ -58,7 +58,6 @@ export default function BookTickets() {
           </div>
         </div>
       </section>
-    </>
-  );
-}
+    </>);
 
+}

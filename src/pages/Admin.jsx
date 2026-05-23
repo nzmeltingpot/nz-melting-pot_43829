@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import JSZip from 'jszip';
 import { generateUnsubscribeLink, generateNewsletterEmail } from '../utils/emailTemplates';
 import { sendBulkEmail } from '../utils/brevoClient';
 
@@ -17,19 +18,37 @@ function parseFromAddress(value) {
   return fallback;
 }
 
-// Format date as dd/mm/yyyy
+// Format date as dd/mm/yyyy — safe against mm/dd/yyyy misinterpretation
 const formatDate = (dateStr) => {
   if (!dateStr) return '—';
-  try {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return '—';
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-  } catch {
-    return '—';
-  }
+  const s = String(dateStr);
+  // ISO YYYY-MM-DD or ISO datetime (e.g. "2026-05-11 10:30:00") — extract parts directly
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  // Already NZ-formatted: dd/mm/yyyy or "dd/mm/yyyy, hh:mm:ss"
+  const nzMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (nzMatch) return `${nzMatch[1]}/${nzMatch[2]}/${nzMatch[3]}`;
+  // Last resort — do NOT pass ambiguous strings to new Date(); return as-is
+  return s;
+};
+
+/**
+ * Extract the year from a stored timestamp string without using new Date(),
+ * to avoid mm/dd/yyyy misinterpretation of legacy NZ-locale strings.
+ */
+const extractYear = (dateStr) => {
+  if (!dateStr) return null;
+  const s = String(dateStr);
+  // YYYY-MM-DD… format
+  const iso = s.match(/^(\d{4})-\d{2}-\d{2}/);
+  if (iso) return parseInt(iso[1], 10);
+  // dd/mm/yyyy format
+  const nz = s.match(/^\d{2}\/\d{2}\/(\d{4})/);
+  if (nz) return parseInt(nz[1], 10);
+  // ISO 8601 from DB (e.g. "2026-05-11T10:30:00Z")
+  const db = s.match(/^(\d{4})/);
+  if (db) return parseInt(db[1], 10);
+  return null;
 };
 
 const SETTINGS_TABLE_ID = 79250;
@@ -79,8 +98,17 @@ export default function Admin() {
   const [saveSuccess, setSaveSuccess] = useState({});
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupStatus, setBackupStatus] = useState(null); // null | 'success' | string (error)
 
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // API Keys tab state
+  const [envStatus, setEnvStatus] = useState(null);
+  const [envLoading, setEnvLoading] = useState(false);
+  const [envSaving, setEnvSaving] = useState({});
+  const [envValues, setEnvValues] = useState({ STRIPE_SECRET_KEY: '', BREVO_API_KEY: '' });
+  const [envMessages, setEnvMessages] = useState({});
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [membersPage, setMembersPage] = useState(1);
@@ -96,7 +124,33 @@ export default function Admin() {
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
+  const [sendProgress, setSendProgress] = useState(null);
+  const [showSendConfirm, setShowSendConfirm] = useState(false);
+  const [pendingRecipients, setPendingRecipients] = useState([]);
+  const isSendingRef = useRef(false); // idempotency guard — blocks re-entrant sends
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [addMemberName, setAddMemberName] = useState('');
+  const [addMemberEmail, setAddMemberEmail] = useState('');
+  const [addMemberStatus, setAddMemberStatus] = useState('active');
+  const [addMemberGroup, setAddMemberGroup] = useState('A');
+  const [addingMember, setAddingMember] = useState(false);
+  const [addMemberError, setAddMemberError] = useState('');
+  const [membersGroupFilter, setMembersGroupFilter] = useState('all');
+
+  // Delivery status modal state
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryEmail, setDeliveryEmail] = useState('');
+  const [deliveryEvents, setDeliveryEvents] = useState([]);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryError, setDeliveryError] = useState('');
+
+  // Group diagnostics modal state
+  const [showDiagModal, setShowDiagModal] = useState(false);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResults, setDiagResults] = useState(null);
+  const [diagError, setDiagError] = useState('');
+  const [diagGroup, setDiagGroup] = useState('A');
 
   // Dashboard state
   const [dashboardStats, setDashboardStats] = useState({
@@ -190,23 +244,67 @@ export default function Admin() {
     if (user) loadSettings();
   }, [user, loadSettings]);
 
-  const loadMembers = useCallback(async (page = 1, search = '') => {
+  const loadEnvStatus = useCallback(async () => {
+    setEnvLoading(true);
+    try {
+      const { data, error } = await window.ezsite.apis.run({
+        path: 'config/envVars',
+        methodName: 'getEnvStatus',
+        param: []
+      });
+      if (!error && data) setEnvStatus(data);
+    } catch (err) {
+      console.error('Failed to load env status:', err);
+    }
+    setEnvLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (user && activeTab === 'apikeys') loadEnvStatus();
+  }, [user, activeTab, loadEnvStatus]);
+
+  const handleSaveEnvVar = async (key) => {
+    const value = envValues[key]?.trim();
+    if (!value) {
+      setEnvMessages((p) => ({ ...p, [key]: { ok: false, text: 'Value cannot be empty.' } }));
+      return;
+    }
+    setEnvSaving((p) => ({ ...p, [key]: true }));
+    setEnvMessages((p) => ({ ...p, [key]: null }));
+    try {
+      const { error } = await window.ezsite.apis.run({
+        path: 'config/envVars',
+        methodName: 'setEnvVar',
+        param: [key, value]
+      });
+      if (error) throw new Error(error);
+      setEnvMessages((p) => ({ ...p, [key]: { ok: true, text: 'Saved successfully.' } }));
+      setEnvValues((p) => ({ ...p, [key]: '' }));
+      await loadEnvStatus();
+    } catch (err) {
+      setEnvMessages((p) => ({ ...p, [key]: { ok: false, text: err.message || 'Save failed.' } }));
+    }
+    setEnvSaving((p) => ({ ...p, [key]: false }));
+  };
+
+  const loadMembers = useCallback(async (page = 1, search = '', groupFilter = 'all') => {
     setLoadingMembers(true);
     try {
       const query = {
         PageNo: page,
         PageSize: membersPageSize,
         OrderByField: 'email',
-        IsAsc: true
+        IsAsc: true,
+        Filters: []
       };
-      // Add server-side filter for email OR full_name when a search term is present.
-      // Ezsite tablePage Filters use Op: 'StringContains' for partial matches.
       const term = (search || '').trim();
       if (term) {
-        query.Filters = [
-          { Name: 'email', Op: 'StringContains', Value: term }
-        ];
+        query.Filters.push({ Name: 'email', Op: 'StringContains', Value: term });
       }
+      if (groupFilter === 'A' || groupFilter === 'B') {
+        query.Filters.push({ Name: 'member_group', Op: 'Equal', Value: groupFilter });
+      }
+      if (query.Filters.length === 0) delete query.Filters;
       const { data, error } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, query);
       if (!error && data?.List) {
         setMembers(data.List);
@@ -221,9 +319,9 @@ export default function Admin() {
 
   useEffect(() => {
     if (user && activeTab === 'members') {
-      loadMembers(1, membersSearch);
+      loadMembers(1, membersSearch, membersGroupFilter);
     }
-  }, [user, activeTab, loadMembers, membersSearch]);
+  }, [user, activeTab, loadMembers, membersSearch, membersGroupFilter]);
 
   // Dashboard data loader
   const loadDashboard = useCallback(async () => {
@@ -251,8 +349,8 @@ export default function Admin() {
         const currentYear = new Date().getFullYear();
         const thisYearCount = subRes.data.List.filter((s) => {
           try {
-            return new Date(s.submission_timestamp || s.CreatedAt).getFullYear() === currentYear;
-          } catch { return false; }
+            return extractYear(s.submission_timestamp || s.CreatedAt) === currentYear;
+          } catch {return false;}
         }).length;
 
         setDashboardStats((prev) => ({
@@ -295,7 +393,7 @@ export default function Admin() {
         unsubscribed_date: new Date().toISOString()
       });
       if (error) throw new Error(error);
-      loadMembers(membersPage, membersSearch);
+      loadMembers(membersPage, membersSearch, membersGroupFilter);
     } catch (err) {
       alert('Failed to update: ' + (err.message || 'Unknown error'));
     }
@@ -309,7 +407,7 @@ export default function Admin() {
         unsubscribed_date: ''
       });
       if (error) throw new Error(error);
-      loadMembers(membersPage, membersSearch);
+      loadMembers(membersPage, membersSearch, membersGroupFilter);
     } catch (err) {
       alert('Failed to update: ' + (err.message || 'Unknown error'));
     }
@@ -322,20 +420,121 @@ export default function Admin() {
         ID: member.id || member.ID
       });
       if (error) throw new Error(error);
-      loadMembers(membersPage, membersSearch);
+      loadMembers(membersPage, membersSearch, membersGroupFilter);
     } catch (err) {
       alert('Failed to delete: ' + (err.message || 'Unknown error'));
     }
   };
 
+  const handleCheckDelivery = async (member) => {
+    setDeliveryEmail(member.email);
+    setDeliveryEvents([]);
+    setDeliveryError('');
+    setDeliveryLoading(true);
+    setShowDeliveryModal(true);
+    const { data, error } = await window.ezsite.apis.run({
+      path: 'email/getEmailEvents',
+      methodName: 'getEmailEvents',
+      param: [{ email: member.email, days: 90 }]
+    });
+    setDeliveryLoading(false);
+    if (error) {setDeliveryError(typeof error === 'string' ? error : JSON.stringify(error));return;}
+    setDeliveryEvents(data?.events || []);
+  };
+
+  const handleRunDiagnostics = async (group) => {
+    setDiagGroup(group);
+    setDiagError('');
+    setDiagResults(null);
+    setDiagLoading(true);
+    setShowDiagModal(true);
+
+    try {
+      // Fetch up to 30 active members from the chosen group
+      const filters = [{ Name: 'status', Op: 'NotEqual', Value: 'unsubscribed' }];
+      if (group === 'A' || group === 'B') {
+        filters.push({ Name: 'member_group', Op: 'Equal', Value: group });
+      }
+      const { data, error } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, {
+        PageNo: 1,
+        PageSize: 30,
+        OrderByField: 'ID',
+        IsAsc: true,
+        Filters: filters
+      });
+      if (error || !data?.List?.length) {
+        setDiagError('Could not fetch members from database.');
+        setDiagLoading(false);
+        return;
+      }
+      const emails = data.List.map((m) => m.email).filter(Boolean);
+      const { data: diagData, error: diagErr } = await window.ezsite.apis.run({
+        path: 'email/checkContactBlocklist',
+        methodName: 'checkContactBlocklist',
+        param: [{ emails, days: 90 }]
+      });
+      if (diagErr) {
+        const msg = typeof diagErr === 'string' ? diagErr : diagErr.message || JSON.stringify(diagErr);
+        setDiagError(msg);
+      } else {
+        setDiagResults(diagData);
+      }
+    } catch (err) {
+      setDiagError(err?.message || 'Unexpected error running diagnostics.');
+    }
+    setDiagLoading(false);
+  };
+
+  const downloadSourceBackup = async () => {
+    setBackupLoading(true);
+    setBackupStatus(null);
+    try {
+      const { data, error } = await window.ezsite.apis.run({
+        path: 'backup/exportProject',
+        methodName: 'exportProject',
+        param: []
+      });
+      if (error) throw new Error(error);
+
+      const zip = new JSZip();
+      const folder = zip.folder('nzmeltingpot-backup');
+      for (const file of data.files || []) {
+        folder.file(file.path, file.content);
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      a.download = `nzmeltingpot-backup-${dateStr}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setBackupStatus(`success:${data.totalFiles || data.files.length} files`);
+    } catch (e) {
+      setBackupStatus(`error:${e.message}`);
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
   const exportMembers = async () => {
     try {
-      const { data, error } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, {
+      const exportQuery = {
         PageNo: 1,
         PageSize: 10000,
         OrderByField: 'subscribed_date',
-        IsAsc: false
-      });
+        IsAsc: false,
+        Filters: []
+      };
+      if (membersGroupFilter === 'A' || membersGroupFilter === 'B') {
+        exportQuery.Filters.push({ Name: 'member_group', Op: 'Equal', Value: membersGroupFilter });
+      }
+      if (exportQuery.Filters.length === 0) delete exportQuery.Filters;
+      const { data, error } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, exportQuery);
       if (error || !data?.List) {
         alert('Failed to fetch members');
         return;
@@ -343,6 +542,7 @@ export default function Admin() {
       const columns = [
       { header: 'Full Name', key: 'full_name' },
       { header: 'Email', key: 'email' },
+      { header: 'Group', key: 'member_group' },
       { header: 'Status', key: 'status' },
       { header: 'Subscribed Date', key: 'subscribed_date' },
       { header: 'Unsubscribed Date', key: 'unsubscribed_date' }];
@@ -398,13 +598,40 @@ export default function Admin() {
         alert('Bulk update failed: ' + error);
       } else {
         alert(`Successfully updated ${data} records to "Member"`);
-        // Refresh the members list
-        loadMembers(1, membersSearch);
+        loadMembers(1, membersSearch, membersGroupFilter);
       }
     } catch (err) {
       alert('Bulk update error: ' + (err.message || 'Unknown error'));
     }
     setBulkUpdating(false);
+  };
+
+  const handleAddMember = async () => {
+    if (!addMemberEmail.trim()) {
+      setAddMemberError('Email is required.');
+      return;
+    }
+    setAddingMember(true);
+    setAddMemberError('');
+    try {
+      const { error } = await window.ezsite.apis.tableCreate(MEMBERS_TABLE_ID, {
+        full_name: addMemberName.trim() || 'Member',
+        email: addMemberEmail.trim().toLowerCase(),
+        status: addMemberStatus,
+        member_group: addMemberGroup,
+        subscribed_date: new Date().toISOString()
+      });
+      if (error) throw new Error(error);
+      setShowAddMemberModal(false);
+      setAddMemberName('');
+      setAddMemberEmail('');
+      setAddMemberStatus('active');
+      setAddMemberGroup('A');
+      loadMembers(membersPage, membersSearch, membersGroupFilter);
+    } catch (err) {
+      setAddMemberError(err.message || 'Failed to add member.');
+    }
+    setAddingMember(false);
   };
 
   const toggleMemberSelection = (memberId) => {
@@ -420,13 +647,11 @@ export default function Admin() {
   };
 
   const toggleAllMembers = async () => {
-    // If some members are selected, deselect all
     if (selectedMembers.size > 0) {
       setSelectedMembers(new Set());
       return;
     }
 
-    // Select all active members across all pages
     setLoadingMembers(true);
     try {
       let allActiveIds = [];
@@ -434,12 +659,16 @@ export default function Admin() {
       let hasMore = true;
 
       while (hasMore) {
+        const filters = [{ Name: 'status', Op: 'NotEqual', Value: 'unsubscribed' }];
+        if (membersGroupFilter === 'A' || membersGroupFilter === 'B') {
+          filters.push({ Name: 'member_group', Op: 'Equal', Value: membersGroupFilter });
+        }
         const { data, error } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, {
           PageNo: page,
           PageSize: 100,
           OrderByField: 'ID',
           IsAsc: true,
-          Filters: [{ Name: 'status', Op: 'NotEqual', Value: 'unsubscribed' }]
+          Filters: filters
         });
 
         if (error || !data?.List?.length) {
@@ -466,24 +695,22 @@ export default function Admin() {
     );
   };
 
+  // Step 1: validate, load recipients, show confirmation dialog
   const handleSendEmail = async () => {
+    // Block if a confirm dialog is already open or a send is in-flight
+    if (showSendConfirm || isSendingRef.current || sendingEmail) return;
     if (selectedMembers.size === 0) {
       setEmailResult({ success: false, message: 'No members selected' });
       return;
     }
-
     if (!emailSubject.trim()) {
       setEmailResult({ success: false, message: 'Please enter a subject' });
       return;
     }
-
     if (!emailBody.trim()) {
       setEmailResult({ success: false, message: 'Please enter a message' });
       return;
     }
-
-    setSendingEmail(true);
-    setEmailResult(null);
 
     // Fetch ALL active members across all pages, then filter to only the
     // ones the user selected (by ID set). We do client-side filtering
@@ -524,53 +751,66 @@ export default function Admin() {
       // Filter to only active members with valid emails
       recipients = recipients.filter((m) => m.status !== 'unsubscribed' && m.email);
 
-      // Deduplicate by email (case-insensitive, trimmed) so the same address
-      // never receives the same newsletter twice if the database has duplicates.
-      const seenEmails = new Set();
-      const beforeDedup = recipients.length;
+      // Deduplicate by ID
+      const seenMemberIds = new Set();
       recipients = recipients.filter((m) => {
-        const key = (m.email || '').trim().toLowerCase();
-        if (!key || seenEmails.has(key)) return false;
+        const id = m.id || m.ID;
+        if (seenMemberIds.has(id)) return false;
+        seenMemberIds.add(id);
+        return true;
+      });
+
+      // Deduplicate by email address
+      const seenEmails = new Set();
+      recipients = recipients.filter((m) => {
+        const key = m.email.toLowerCase();
+        if (seenEmails.has(key)) return false;
         seenEmails.add(key);
         return true;
       });
-      const removed = beforeDedup - recipients.length;
-      if (removed > 0) {
-        console.log(`📨 [Brevo] Deduped ${removed} duplicate email row${removed === 1 ? '' : 's'} (kept ${recipients.length} unique recipients)`);
-      }
     } catch (err) {
       console.error('Failed to load selected members:', err);
-      setSendingEmail(false);
       setEmailResult({ success: false, message: 'Failed to load member data' });
       return;
     }
 
     if (recipients.length === 0) {
-      setSendingEmail(false);
       setEmailResult({ success: false, message: 'No active recipients with valid email addresses' });
       return;
     }
 
-    // Bulk newsletter sending — uses Brevo via /api/sendBulkEmail (one HTTP call,
-    // function loops server-side). One-off transactional emails (form replies,
-    // payment confirmations) still go through Resend via window.ezsite.apis.sendEmail.
+    // Show confirmation dialog with exact count before sending
+    setPendingRecipients(recipients);
+    setShowSendConfirm(true);
+  };
 
-    // Resolve the From and Reply-To fields. We keep them identical to the
-    // Resend-side from/reply-to so brand identity stays consistent.
+  // Step 2: user confirmed — actually send (idempotency guard prevents re-entrant calls)
+  const executeSend = async () => {
+    if (isSendingRef.current) {
+      console.warn('[sendBulkEmail] executeSend called while already in-flight — ignored');
+      return;
+    }
+    isSendingRef.current = true;
+    setShowSendConfirm(false);
+    setSendingEmail(true);
+    setEmailResult(null);
+
+    const recipients = pendingRecipients;
     const fromSetting = settings.find((s) => s.setting_key === 'email_from');
     const fromAddress = fromSetting?.setting_value || 'NZ Melting Pot <noreply@nzmeltingpot.com>';
     const fromObj = parseFromAddress(fromAddress);
     const replyToObj = { email: 'info@nzmeltingpot.com', name: 'NZ Melting Pot' };
 
-    // Build the per-recipient payload (personalised HTML + text)
     const brevoRecipients = recipients.map((member) => {
       const unsubscribeLink = generateUnsubscribeLink(member.email);
-      const personalizedBody = emailBody
-        .replace(/\{name\}/gi, member.full_name || 'Member')
-        .replace(/\{email\}/gi, member.email);
+      const personalizedBody = emailBody.
+      replace(/\{name\}/gi, member.full_name || 'Member').
+      replace(/\{email\}/gi, member.email);
       const { html, text } = generateNewsletterEmail({
         fullName: member.full_name || 'Member',
-        newsletterContent: personalizedBody.split('\n').map((p) => p.trim() ? `<p>${p}</p>` : '').join(''),
+        newsletterContent: /<[a-z][\s\S]*>/i.test(personalizedBody) ?
+        personalizedBody :
+        personalizedBody.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`).join(''),
         unsubscribeLink,
         newsletterName: 'NZ Melting Pot',
         siteName: 'NZ Melting Pot'
@@ -580,11 +820,31 @@ export default function Admin() {
 
     console.log(`📨 [Brevo] Bulk newsletter to ${brevoRecipients.length} recipients from: ${fromAddress}`);
 
+    // Log campaign start to DB (audit trail)
+    let campaignLogId = null;
+    try {
+      const { data: logData } = await window.ezsite.apis.tableCreate(82960, {
+        subject: emailSubject,
+        recipient_count: recipients.length,
+        sent_count: 0,
+        failed_count: 0,
+        status: 'sending',
+        error_summary: '',
+        sent_at: new Date().toISOString()
+      });
+      campaignLogId = logData?.ID || logData?.id || null;
+      console.log(`📨 [Brevo] Campaign log created, ID=${campaignLogId}`);
+    } catch (logErr) {
+      console.warn('[sendBulkEmail] Failed to create campaign log:', logErr);
+    }
+
+    setSendProgress(null);
     const result = await sendBulkEmail({
       from: fromObj,
       replyTo: replyToObj,
       subject: emailSubject,
-      recipients: brevoRecipients
+      recipients: brevoRecipients,
+      onProgress: (p) => setSendProgress(p)
     });
 
     console.log('📨 [Brevo] Result:', result);
@@ -593,7 +853,25 @@ export default function Admin() {
     const failCount = result.failed;
     const lastError = result.error || result.failures?.[0]?.error || null;
 
+    // Update campaign log with final counts
+    if (campaignLogId) {
+      try {
+        await window.ezsite.apis.tableUpdate(82960, {
+          ID: campaignLogId,
+          sent_count: successCount,
+          failed_count: failCount,
+          status: failCount === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial',
+          error_summary: result.failures?.slice(0, 5).map((f) => `${f.email}: ${f.error}`).join('; ') || ''
+        });
+        console.log(`📨 [Brevo] Campaign log updated — sent: ${successCount}, failed: ${failCount}`);
+      } catch (logErr) {
+        console.warn('[sendBulkEmail] Failed to update campaign log:', logErr);
+      }
+    }
+
+    setSendProgress(null);
     setSendingEmail(false);
+    isSendingRef.current = false;
 
     if (successCount > 0 && failCount === 0) {
       setEmailResult({ success: true, message: `Email sent to ${successCount} member${successCount !== 1 ? 's' : ''} via Brevo` });
@@ -657,18 +935,18 @@ export default function Admin() {
       // Check if first row looks like a header
       const firstRow = parseCSVLine(lines[0]);
       const looksLikeHeader = firstRow.some((cell) =>
-      /^(name|full_name|fullname|email|status)$/i.test(cell)
+      /^(name|full_name|fullname|email|status|group|member_group)$/i.test(cell)
       );
 
       const dataStartIndex = looksLikeHeader ? 1 : 0;
-      let headerMap = { name: 0, email: 1 }; // Default: name in col 0, email in col 1
+      let headerMap = { name: 0, email: 1, group: -1 }; // Default: name col 0, email col 1
 
       if (looksLikeHeader) {
-        // Find column indices from header
         firstRow.forEach((header, idx) => {
           const h = header.toLowerCase().replace(/[_\s]/g, '');
           if (h === 'name' || h === 'fullname') headerMap.name = idx;
           if (h === 'email') headerMap.email = idx;
+          if (h === 'group' || h === 'membergroup') headerMap.group = idx;
         });
       }
 
@@ -677,8 +955,10 @@ export default function Admin() {
         const row = parseCSVLine(lines[i]);
         const name = row[headerMap.name]?.trim();
         const email = row[headerMap.email]?.trim();
+        let group = headerMap.group >= 0 ? row[headerMap.group]?.trim().toUpperCase() : '';
+        if (group !== 'A' && group !== 'B') group = membersGroupFilter === 'A' || membersGroupFilter === 'B' ? membersGroupFilter : 'A';
         if (name) {
-          names.push({ full_name: name, email: email || '' });
+          names.push({ full_name: name, email: email || '', member_group: group });
         }
       }
 
@@ -698,6 +978,7 @@ export default function Admin() {
             full_name: member.full_name,
             email: member.email,
             status: 'active',
+            member_group: member.member_group || 'A',
             subscribed_date: new Date().toISOString()
           });
           if (error) {
@@ -715,8 +996,7 @@ export default function Admin() {
         message: `Imported ${successCount} member${successCount !== 1 ? 's' : ''}${skipCount > 0 ? ` (${skipCount} skipped)` : ''}`
       });
 
-      // Refresh the members list
-      loadMembers(1, membersSearch);
+      loadMembers(1, membersSearch, membersGroupFilter);
 
     } catch (err) {
       setImportResult({ success: false, message: 'Failed to parse CSV: ' + (err.message || 'Unknown error') });
@@ -965,15 +1245,27 @@ export default function Admin() {
 
             👥 Members
           </button>
+          <button
+            onClick={() => setActiveTab('apikeys')}
+            style={activeTab === 'apikeys' ? styles.tabActive : styles.tab}>
+
+            🔑 API Keys
+          </button>
+          <button
+            onClick={() => setActiveTab('files')}
+            style={activeTab === 'files' ? styles.tabActive : styles.tab}>
+
+            🗂️ Files
+          </button>
         </div>
 
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' &&
         <div>
-          {loadingDashboard ? (
-            <p style={{ textAlign: 'center', color: '#666', padding: 40 }}>Loading dashboard...</p>
-          ) : (
-            <>
+          {loadingDashboard ?
+          <p style={{ textAlign: 'center', color: '#666', padding: 40 }}>Loading dashboard...</p> :
+
+          <>
               {/* Stats Cards */}
               <div style={styles.statsGrid}>
                 <div style={styles.statCard}>
@@ -1004,8 +1296,8 @@ export default function Admin() {
                   <h3 style={styles.dashSectionTitle}>Recent Registrations</h3>
                   <button onClick={() => setActiveTab('submissions')} style={styles.dashLink}>View All →</button>
                 </div>
-                {recentSubmissions.length > 0 ? (
-                  <div style={{ overflowX: 'auto' }}>
+                {recentSubmissions.length > 0 ?
+              <div style={{ overflowX: 'auto' }}>
                     <table style={styles.table}>
                       <thead>
                         <tr>
@@ -1016,8 +1308,8 @@ export default function Admin() {
                         </tr>
                       </thead>
                       <tbody>
-                        {recentSubmissions.map((s, i) => (
-                          <tr key={i}>
+                        {recentSubmissions.map((s, i) =>
+                    <tr key={i}>
                             <td style={styles.td}>{s.participant_name || '—'}</td>
                             <td style={styles.td}>{s.email || '—'}</td>
                             <td style={styles.td}>
@@ -1025,13 +1317,13 @@ export default function Admin() {
                             </td>
                             <td style={styles.td}>{formatDate(s.submission_timestamp || s.CreatedAt)}</td>
                           </tr>
-                        ))}
+                    )}
                       </tbody>
                     </table>
-                  </div>
-                ) : (
-                  <p style={{ color: '#999', fontSize: '0.85rem' }}>No registrations yet.</p>
-                )}
+                  </div> :
+
+              <p style={{ color: '#999', fontSize: '0.85rem' }}>No registrations yet.</p>
+              }
               </div>
 
               {/* Recent Members */}
@@ -1040,8 +1332,8 @@ export default function Admin() {
                   <h3 style={styles.dashSectionTitle}>Recent Members</h3>
                   <button onClick={() => setActiveTab('members')} style={styles.dashLink}>View All →</button>
                 </div>
-                {recentMembers.length > 0 ? (
-                  <div style={{ overflowX: 'auto' }}>
+                {recentMembers.length > 0 ?
+              <div style={{ overflowX: 'auto' }}>
                     <table style={styles.table}>
                       <thead>
                         <tr>
@@ -1052,35 +1344,35 @@ export default function Admin() {
                         </tr>
                       </thead>
                       <tbody>
-                        {recentMembers.map((m, i) => (
-                          <tr key={i}>
+                        {recentMembers.map((m, i) =>
+                    <tr key={i}>
                             <td style={styles.td}>{m.full_name || '—'}</td>
                             <td style={styles.td}>{m.email || '—'}</td>
                             <td style={styles.td}>
                               <span style={{
-                                ...styles.badge,
-                                background: m.status === 'active' ? '#dcfce7' : '#fef2f2',
-                                color: m.status === 'active' ? '#166534' : '#991b1b'
-                              }}>
+                          ...styles.badge,
+                          background: m.status === 'active' ? '#dcfce7' : '#fef2f2',
+                          color: m.status === 'active' ? '#166534' : '#991b1b'
+                        }}>
                                 {m.status || '—'}
                               </span>
                             </td>
                             <td style={styles.td}>{formatDate(m.subscribed_date || m.CreatedAt)}</td>
                           </tr>
-                        ))}
+                    )}
                       </tbody>
                     </table>
-                  </div>
-                ) : (
-                  <p style={{ color: '#999', fontSize: '0.85rem' }}>No members yet.</p>
-                )}
+                  </div> :
+
+              <p style={{ color: '#999', fontSize: '0.85rem' }}>No members yet.</p>
+              }
               </div>
 
               {/* Quick Actions */}
               <div style={styles.dashSection}>
                 <h3 style={styles.dashSectionTitle}>Quick Actions</h3>
                 <div style={styles.quickActions}>
-                  <button onClick={() => { setActiveTab('submissions'); setTimeout(() => exportToExcel(), 300); }} style={styles.quickActionBtn}>
+                  <button onClick={() => {setActiveTab('submissions');setTimeout(() => exportToExcel(), 300);}} style={styles.quickActionBtn}>
                     <span style={{ fontSize: '1.3rem' }}>📥</span>
                     <span>Export Submissions</span>
                   </button>
@@ -1099,7 +1391,7 @@ export default function Admin() {
                 </div>
               </div>
             </>
-          )}
+          }
         </div>
         }
 
@@ -1152,8 +1444,8 @@ export default function Admin() {
                   👥 Mailing List Members
                 </h3>
                 <p style={{ margin: '4px 0 0', color: '#666', fontSize: '0.85rem' }}>
-                  {membersTotal} total member{membersTotal !== 1 ? 's' : ''}
-                  {' • '}<span style={{ color: '#166534' }}>{members.filter((m) => m.status !== 'unsubscribed').length} active</span>
+                  {membersTotal} {membersGroupFilter !== 'all' ? `Group ${membersGroupFilter} ` : ''}member{membersTotal !== 1 ? 's' : ''}
+                  {' • '}<span style={{ color: '#166534' }}>{members.filter((m) => m.status !== 'unsubscribed').length} active (this page)</span>
                   {selectedMembers.size > 0 && ` • ${selectedMembers.size} selected`}
                 </p>
               </div>
@@ -1179,6 +1471,42 @@ export default function Admin() {
                     Send Email ({selectedMembers.size})
                   </button>
               }
+                <button
+                onClick={() => {setAddMemberError('');setShowAddMemberModal(true);}}
+                style={{
+                  ...styles.primaryBtn,
+                  width: 'auto',
+                  padding: '8px 16px',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'linear-gradient(135deg, #0f6a3a, #16a34a)'
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  Add Member
+                </button>
+                <button
+                onClick={() => handleRunDiagnostics(membersGroupFilter === 'B' ? 'B' : 'A')}
+                title="Check why Group members aren't receiving emails — detects Brevo blocklist issues"
+                style={{
+                  ...styles.primaryBtn,
+                  width: 'auto',
+                  padding: '8px 16px',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'linear-gradient(135deg, #7B1E2D, #a83248)'
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  Diagnose Delivery
+                </button>
                 <input
                 type="file"
                 accept=".csv"
@@ -1254,82 +1582,105 @@ export default function Admin() {
             {/* Search box */}
             <div style={{ marginBottom: 16, position: 'relative' }}>
               <svg
-                width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
               <input
-                type="text"
-                value={membersSearchInput}
-                onChange={(e) => {
-                  setMembersSearchInput(e.target.value);
-                  // Debounce: only fire the actual search 350ms after the user stops typing
+              type="text"
+              value={membersSearchInput}
+              onChange={(e) => {
+                setMembersSearchInput(e.target.value);
+                // Debounce: only fire the actual search 350ms after the user stops typing
+                clearTimeout(window.__membersSearchDebounce);
+                window.__membersSearchDebounce = setTimeout(() => {
+                  setMembersSearch(e.target.value.trim());
+                }, 350);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
                   clearTimeout(window.__membersSearchDebounce);
-                  window.__membersSearchDebounce = setTimeout(() => {
-                    setMembersSearch(e.target.value.trim());
-                  }, 350);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    clearTimeout(window.__membersSearchDebounce);
-                    setMembersSearch(membersSearchInput.trim());
-                  } else if (e.key === 'Escape') {
-                    setMembersSearchInput('');
-                    setMembersSearch('');
-                  }
-                }}
-                placeholder="Search by email…"
-                style={{
-                  width: '100%',
-                  padding: '10px 38px 10px 38px',
-                  border: '1.5px solid #E6DDD3',
-                  borderRadius: 8,
-                  fontSize: '0.9rem',
-                  background: '#FFFCF8',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }} />
-              {membersSearchInput && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMembersSearchInput('');
-                    setMembersSearch('');
-                  }}
-                  aria-label="Clear search"
-                  style={{
-                    position: 'absolute',
-                    right: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: '#9ca3af',
-                    cursor: 'pointer',
-                    fontSize: '1.1rem',
-                    lineHeight: 1,
-                    padding: 4
-                  }}>
+                  setMembersSearch(membersSearchInput.trim());
+                } else if (e.key === 'Escape') {
+                  setMembersSearchInput('');
+                  setMembersSearch('');
+                }
+              }}
+              placeholder="Search by email…"
+              style={{
+                width: '100%',
+                padding: '10px 38px 10px 38px',
+                border: '1.5px solid #E6DDD3',
+                borderRadius: 8,
+                fontSize: '0.9rem',
+                background: '#FFFCF8',
+                outline: 'none',
+                boxSizing: 'border-box'
+              }} />
+              {membersSearchInput &&
+            <button
+              type="button"
+              onClick={() => {
+                setMembersSearchInput('');
+                setMembersSearch('');
+              }}
+              aria-label="Clear search"
+              style={{
+                position: 'absolute',
+                right: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: '#9ca3af',
+                cursor: 'pointer',
+                fontSize: '1.1rem',
+                lineHeight: 1,
+                padding: 4
+              }}>
                   ×
                 </button>
-              )}
-              {membersSearch && (
-                <p style={{ margin: '8px 0 0 4px', fontSize: '0.78rem', color: '#7B1E2D' }}>
+            }
+              {membersSearch &&
+            <p style={{ margin: '8px 0 0 4px', fontSize: '0.78rem', color: '#7B1E2D' }}>
                   Showing results matching <strong>"{membersSearch}"</strong>
                   {' · '}
                   <button
-                    type="button"
-                    onClick={() => {
-                      setMembersSearchInput('');
-                      setMembersSearch('');
-                    }}
-                    style={{ background: 'none', border: 'none', color: '#7B1E2D', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.78rem', padding: 0 }}>
+                type="button"
+                onClick={() => {
+                  setMembersSearchInput('');
+                  setMembersSearch('');
+                }}
+                style={{ background: 'none', border: 'none', color: '#7B1E2D', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.78rem', padding: 0 }}>
                     clear
                   </button>
                 </p>
-              )}
+            }
+            </div>
+
+            {/* Group filter */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.85rem', color: '#666', fontWeight: 600 }}>Show:</span>
+              {[['all', 'All Members'], ['A', 'Group A (250)'], ['B', 'Group B (62)']].map(([val, label]) =>
+            <button
+              key={val}
+              onClick={() => {setMembersGroupFilter(val);setSelectedMembers(new Set());}}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 20,
+                border: '1.5px solid',
+                borderColor: membersGroupFilter === val ? '#7B1E2D' : '#E6DDD3',
+                background: membersGroupFilter === val ? '#7B1E2D' : 'transparent',
+                color: membersGroupFilter === val ? '#fff' : '#555',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}>
+                {label}
+              </button>
+            )}
             </div>
 
             {importResult &&
@@ -1378,6 +1729,7 @@ export default function Admin() {
                         </th>
                         <th style={styles.th}>Name</th>
                         <th style={styles.th}>Email</th>
+                        <th style={styles.th}>Group</th>
                         <th style={styles.th}>Status</th>
                         <th style={styles.th}>Subscribed</th>
                         <th style={styles.th}>Unsubscribed</th>
@@ -1398,6 +1750,19 @@ export default function Admin() {
                           </td>
                           <td style={styles.td}>{m.full_name || '—'}</td>
                           <td style={styles.td}>{m.email || '—'}</td>
+                          <td style={styles.td}>
+                            <span style={{
+                        display: 'inline-block',
+                        padding: '3px 10px',
+                        borderRadius: 12,
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        background: m.member_group === 'B' ? '#eff6ff' : '#fef9ee',
+                        color: m.member_group === 'B' ? '#1d4ed8' : '#92400e'
+                      }}>
+                              Group {m.member_group || 'A'}
+                            </span>
+                          </td>
                           <td style={styles.td}>
                             <span style={{
                         display: 'inline-block',
@@ -1439,6 +1804,12 @@ export default function Admin() {
                                 </button>
                         }
                               <button
+                          onClick={() => handleCheckDelivery(m)}
+                          style={styles.actionBtn}
+                          title="Check email delivery status">
+                                📬
+                              </button>
+                              <button
                           onClick={() => handleDeleteMember(m)}
                           style={{ ...styles.actionBtn, color: '#991b1b' }}
                           title="Delete permanently">
@@ -1458,7 +1829,7 @@ export default function Admin() {
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <button
-                  onClick={() => loadMembers(1, membersSearch)}
+                  onClick={() => loadMembers(1, membersSearch, membersGroupFilter)}
                   disabled={membersPage <= 1}
                   style={{
                     ...styles.paginationBtn,
@@ -1468,7 +1839,7 @@ export default function Admin() {
                         ⏮ First
                       </button>
                       <button
-                  onClick={() => loadMembers(membersPage - 1, membersSearch)}
+                  onClick={() => loadMembers(membersPage - 1, membersSearch, membersGroupFilter)}
                   disabled={membersPage <= 1}
                   style={{
                     ...styles.paginationBtn,
@@ -1490,7 +1861,7 @@ export default function Admin() {
 
                   if (start > 1) {
                     pages.push(
-                      <button key={1} onClick={() => loadMembers(1, membersSearch)} style={styles.pageNumBtn}>1</button>
+                      <button key={1} onClick={() => loadMembers(1, membersSearch, membersGroupFilter)} style={styles.pageNumBtn}>1</button>
                     );
                     if (start > 2) pages.push(<span key="dots1" style={{ color: '#666' }}>...</span>);
                   }
@@ -1499,7 +1870,7 @@ export default function Admin() {
                     pages.push(
                       <button
                         key={i}
-                        onClick={() => loadMembers(i, membersSearch)}
+                        onClick={() => loadMembers(i, membersSearch, membersGroupFilter)}
                         style={{
                           ...styles.pageNumBtn,
                           background: i === membersPage ? '#c9a227' : 'transparent',
@@ -1515,7 +1886,7 @@ export default function Admin() {
                   if (end < totalMembersPages) {
                     if (end < totalMembersPages - 1) pages.push(<span key="dots2" style={{ color: '#666' }}>...</span>);
                     pages.push(
-                      <button key={totalMembersPages} onClick={() => loadMembers(totalMembersPages, membersSearch)} style={styles.pageNumBtn}>{totalMembersPages}</button>
+                      <button key={totalMembersPages} onClick={() => loadMembers(totalMembersPages, membersSearch, membersGroupFilter)} style={styles.pageNumBtn}>{totalMembersPages}</button>
                     );
                   }
 
@@ -1523,7 +1894,7 @@ export default function Admin() {
                 })()}
 
                       <button
-                  onClick={() => loadMembers(membersPage + 1, membersSearch)}
+                  onClick={() => loadMembers(membersPage + 1, membersSearch, membersGroupFilter)}
                   disabled={membersPage >= totalMembersPages}
                   style={{
                     ...styles.paginationBtn,
@@ -1533,7 +1904,7 @@ export default function Admin() {
                         Next →
                       </button>
                       <button
-                  onClick={() => loadMembers(totalMembersPages, membersSearch)}
+                  onClick={() => loadMembers(totalMembersPages, membersSearch, membersGroupFilter)}
                   disabled={membersPage >= totalMembersPages}
                   style={{
                     ...styles.paginationBtn,
@@ -1549,6 +1920,104 @@ export default function Admin() {
                   </div>
             }
               </>
+          }
+
+            {/* Add Member Modal */}
+            {showAddMemberModal &&
+          <div style={styles.modalOverlay}>
+                <div style={{ ...styles.modal, maxWidth: 440 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1E1915' }}>
+                      ➕ Add Member
+                    </h3>
+                    <button
+                  onClick={() => setShowAddMemberModal(false)}
+                  style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>
+                      ×
+                    </button>
+                  </div>
+
+                  {addMemberError &&
+              <div style={{ padding: '10px 14px', marginBottom: 16, borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '0.875rem' }}>
+                      {addMemberError}
+                    </div>
+              }
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={styles.label}>Full Name</label>
+                    <input
+                  type="text"
+                  value={addMemberName}
+                  onChange={(e) => setAddMemberName(e.target.value)}
+                  placeholder="e.g. Jane Smith"
+                  style={styles.input} />
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={styles.label}>Email <span style={{ color: '#991b1b' }}>*</span></label>
+                    <input
+                  type="email"
+                  value={addMemberEmail}
+                  onChange={(e) => setAddMemberEmail(e.target.value)}
+                  placeholder="e.g. jane@example.com"
+                  style={styles.input} />
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={styles.label}>Status</label>
+                    <select
+                  value={addMemberStatus}
+                  onChange={(e) => setAddMemberStatus(e.target.value)}
+                  style={{ ...styles.input, cursor: 'pointer' }}>
+                      <option value="active">Active</option>
+                      <option value="unsubscribed">Unsubscribed</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: 24 }}>
+                    <label style={styles.label}>Group</label>
+                    <select
+                  value={addMemberGroup}
+                  onChange={(e) => setAddMemberGroup(e.target.value)}
+                  style={{ ...styles.input, cursor: 'pointer' }}>
+                      <option value="A">Group A</option>
+                      <option value="B">Group B</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                    <button
+                  onClick={() => setShowAddMemberModal(false)}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'transparent',
+                    border: '1.5px solid #E6DDD3',
+                    borderRadius: 8,
+                    color: '#666',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}>
+                      Cancel
+                    </button>
+                    <button
+                  onClick={handleAddMember}
+                  disabled={addingMember || !addMemberEmail.trim()}
+                  style={{
+                    ...styles.primaryBtn,
+                    width: 'auto',
+                    padding: '10px 24px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'linear-gradient(135deg, #0f6a3a, #16a34a)',
+                    opacity: addingMember || !addMemberEmail.trim() ? 0.6 : 1
+                  }}>
+                      {addingMember ? 'Adding...' : 'Add Member'}
+                    </button>
+                  </div>
+                </div>
+              </div>
           }
 
             {/* Email Modal */}
@@ -1596,6 +2065,18 @@ export default function Admin() {
                   fontSize: '0.75rem',
                   marginRight: 6
                 }}>{selectedMembers.size} selected</span>
+                    {membersGroupFilter !== 'all' &&
+                <span style={{
+                  display: 'inline-block',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  background: membersGroupFilter === 'B' ? '#eff6ff' : '#fef9ee',
+                  color: membersGroupFilter === 'B' ? '#1d4ed8' : '#92400e',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  marginRight: 6
+                }}>Group {membersGroupFilter} only</span>
+                }
                     Will send to all selected active members across all pages (unsubscribed members are automatically excluded).
                     <br />
                     <span style={{ color: '#888', fontSize: '0.8rem' }}>Tip: Use {'{name}'} to personalize. Unsubscribe link is auto-added to all emails.</span>
@@ -1613,6 +2094,24 @@ export default function Admin() {
               }}>
                       {emailResult.message}
                     </div>
+              }
+
+                  {sendingEmail && sendProgress &&
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#555', marginBottom: 6 }}>
+                  <span>Sending batch {sendProgress.batch} of {sendProgress.batches}…</span>
+                  <span>{sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''} / {sendProgress.total} total</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%',
+                    borderRadius: 4,
+                    background: 'linear-gradient(90deg, #1d4ed8, #3b82f6)',
+                    width: `${Math.round((sendProgress.sent + sendProgress.failed) / sendProgress.total * 100)}%`,
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+              </div>
               }
 
                   <div style={{ marginBottom: 16 }}>
@@ -1688,6 +2187,192 @@ export default function Admin() {
           </div>
         }
 
+        {/* API Keys Tab */}
+        {activeTab === 'apikeys' &&
+        <div>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionIcon}>🔑</span> API Keys &amp; Integrations
+            </div>
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 20, lineHeight: 1.6 }}>
+              Configure third-party API keys. Keys are stored securely in the database and never exposed to the browser.
+              Enter a new value and click Save to update.
+            </p>
+
+            {envLoading ?
+          <p style={{ textAlign: 'center', color: '#666', padding: 32 }}>Loading key status…</p> :
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                {/* Stripe */}
+                <ApiKeyField
+              label="Stripe Secret Key"
+              keyName="STRIPE_SECRET_KEY"
+              description="Used by the registration form to create Stripe Checkout sessions for participant payments. Get your key from stripe.com → Developers → API Keys."
+              statusInfo={envStatus?.STRIPE_SECRET_KEY}
+              value={envValues.STRIPE_SECRET_KEY}
+              onChange={(v) => setEnvValues((p) => ({ ...p, STRIPE_SECRET_KEY: v }))}
+              onSave={() => handleSaveEnvVar('STRIPE_SECRET_KEY')}
+              saving={envSaving.STRIPE_SECRET_KEY}
+              message={envMessages.STRIPE_SECRET_KEY}
+              placeholder="sk_live_… or sk_test_…" />
+
+
+                {/* Brevo */}
+                <ApiKeyField
+              label="Brevo API Key"
+              keyName="BREVO_API_KEY"
+              description="Used for bulk newsletter emails to members. Get your key from brevo.com → Settings → SMTP & API → API Keys."
+              statusInfo={envStatus?.BREVO_API_KEY}
+              value={envValues.BREVO_API_KEY}
+              onChange={(v) => setEnvValues((p) => ({ ...p, BREVO_API_KEY: v }))}
+              onSave={() => handleSaveEnvVar('BREVO_API_KEY')}
+              saving={envSaving.BREVO_API_KEY}
+              message={envMessages.BREVO_API_KEY}
+              placeholder="xkeysib-…" />
+
+
+                <div style={{ padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: '0.82rem', color: '#15803d', lineHeight: 1.6 }}>
+                  <strong>Resend (transactional email):</strong> Used automatically by EzSite for payment confirmation and booking emails — no key needed here.
+                </div>
+
+              </div>
+          }
+          </div>
+        }
+
+        {/* Files Tab */}
+        {activeTab === 'files' &&
+        <div>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionIcon}>🗂️</span> File Manager &amp; Downloads
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* Platform File Manager */}
+            <div style={{ padding: 20, background: '#f8f4ef', border: '1px solid #E6DDD3', borderRadius: 10 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
+                📂 Platform File Manager
+              </h3>
+              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#666', lineHeight: 1.6 }}>
+                Browse, upload, and download files stored on the EzSite platform — including images, documents, and other
+                uploaded assets.
+              </p>
+              <a
+                href="https://www.ezsite.ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '10px 20px',
+                  background: '#7B1E2D',
+                  color: '#fff',
+                  borderRadius: 7,
+                  textDecoration: 'none',
+                  fontSize: '0.9rem',
+                  fontWeight: 600
+                }}>
+                Open EzSite File Manager ↗
+              </a>
+              <p style={{ margin: '10px 0 0', fontSize: '0.78rem', color: '#999' }}>
+                Opens in a new tab → navigate to your project → Files section.
+              </p>
+            </div>
+
+            {/* Data Exports */}
+            <div style={{ padding: 20, background: '#f8f4ef', border: '1px solid #E6DDD3', borderRadius: 10 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
+                📥 Data Exports
+              </h3>
+              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#666', lineHeight: 1.6 }}>
+                Download your site data as CSV files for backup, reporting, or offline use.
+              </p>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  onClick={exportToExcel}
+                  disabled={exporting}
+                  style={{
+                    padding: '10px 18px',
+                    background: '#2E7D32',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 7,
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    cursor: exporting ? 'not-allowed' : 'pointer',
+                    opacity: exporting ? 0.7 : 1
+                  }}>
+                  {exporting ? 'Exporting…' : '⬇ Submissions CSV'}
+                </button>
+                <button
+                  onClick={exportMembers}
+                  style={{
+                    padding: '10px 18px',
+                    background: '#1565C0',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 7,
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}>
+                  ⬇ Members CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Source Code Backup */}
+            <div style={{ padding: 20, background: '#f0f4ff', border: '1px solid #c7d3f5', borderRadius: 10 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
+                💾 Source Code Backup
+              </h3>
+              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#444', lineHeight: 1.6 }}>
+                Downloads a ZIP of all your project source files — <code>src/</code>, <code>public/</code>,
+                <code>__easysite_nodejs__/</code>, <code>index.html</code>, <code>package.json</code>,
+                <code>vite.config.js</code> etc. Excludes <code>.env</code>, <code>node_modules</code>,
+                and <code>dist</code> for safety.
+              </p>
+              <button
+                onClick={downloadSourceBackup}
+                disabled={backupLoading}
+                style={{
+                  padding: '10px 20px',
+                  background: backupLoading ? '#7a8ab5' : '#3b4fc4',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 7,
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  cursor: backupLoading ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}>
+                {backupLoading ?
+                <>⏳ Reading files…</> :
+                <>⬇ Download Source ZIP</>}
+              </button>
+              {backupStatus && backupStatus.startsWith('success') &&
+              <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: '#1a6e2e', fontWeight: 600 }}>
+                  ✅ Backup downloaded — {backupStatus.split(':')[1]} files included.
+                </p>
+              }
+              {backupStatus && backupStatus.startsWith('error') &&
+              <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: '#c0392b', fontWeight: 600 }}>
+                  ❌ {backupStatus.split(':').slice(1).join(':')}
+                </p>
+              }
+              <p style={{ margin: '12px 0 0', fontSize: '0.78rem', color: '#666', lineHeight: 1.5 }}>
+                Keep a dated copy somewhere safe (local drive, Google Drive, GitHub). Re-download any time you make significant changes.
+              </p>
+            </div>
+
+          </div>
+        </div>
+        }
+
         {/* Content Tab */}
         {activeTab === 'content' && (loadingSettings ?
         <p style={{ textAlign: 'center', color: '#666', padding: 40 }}>Loading settings...</p> :
@@ -1735,6 +2420,363 @@ export default function Admin() {
           </div>)
         }
       </div>
+
+      {/* Send confirmation modal */}
+      {showSendConfirm &&
+      <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modal, maxWidth: 420 }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>
+              Confirm Bulk Send
+            </h3>
+            <p style={{ margin: '0 0 20px', color: '#555', fontSize: '0.95rem', lineHeight: 1.6 }}>
+              You are about to send <strong>"{emailSubject}"</strong> to{' '}
+              <strong>{pendingRecipients.length} recipient{pendingRecipients.length !== 1 ? 's' : ''}</strong>.
+              <br />
+              <span style={{ fontSize: '0.83rem', color: '#888' }}>
+                This action cannot be undone. Each recipient will receive exactly one email.
+              </span>
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+              onClick={() => {setShowSendConfirm(false);setPendingRecipients([]);}}
+              style={{
+                padding: '10px 20px',
+                background: 'transparent',
+                border: '1.5px solid #E6DDD3',
+                borderRadius: 8,
+                color: '#666',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}>
+                Cancel
+              </button>
+              <button
+              onClick={executeSend}
+              disabled={isSendingRef.current || sendingEmail}
+              style={{
+                padding: '10px 24px',
+                background: isSendingRef.current || sendingEmail ? '#93c5fd' : 'linear-gradient(135deg, #1d4ed8, #3b82f6)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                cursor: isSendingRef.current || sendingEmail ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+                Yes, send to {pendingRecipients.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
+      {/* Group Delivery Diagnostics modal */}
+      {showDiagModal &&
+      <div style={styles.modalOverlay} onClick={() => setShowDiagModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Delivery Diagnostics — Group {diagGroup}</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '0.82rem', color: '#666' }}>Checking first 30 active members against Brevo's blocklist &amp; event history (last 90 days)</p>
+              </div>
+              <button onClick={() => setShowDiagModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', color: '#888', padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+
+            {diagLoading &&
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#888', fontSize: '0.95rem' }}>
+                <div style={{ marginBottom: 12, fontSize: '1.5rem' }}>🔍</div>
+                Checking Brevo contact status and events… this may take 30–60 s for 30 contacts.
+              </div>
+          }
+
+            {!diagLoading && diagError &&
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '14px 16px', color: '#991b1b', fontSize: '0.9rem' }}>
+                <strong>Error:</strong> {diagError}
+              </div>
+          }
+
+            {!diagLoading && diagResults &&
+          <>
+                {/* Summary cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+                  {[
+              { label: 'Checked', value: diagResults.summary.total, bg: '#f3f4f6', text: '#374151' },
+              { label: 'Blocklisted', value: diagResults.summary.blocked, bg: diagResults.summary.blocked > 0 ? '#fef2f2' : '#f0fdf4', text: diagResults.summary.blocked > 0 ? '#991b1b' : '#166534' },
+              { label: 'Active', value: diagResults.summary.active, bg: '#f0fdf4', text: '#166534' },
+              { label: 'No Events', value: diagResults.summary.noEvents, bg: '#fef9c3', text: '#854d0e' }].
+              map((card) =>
+              <div key={card.label} style={{ background: card.bg, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: card.text }}>{card.value}</div>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 600, color: card.text, opacity: 0.8, marginTop: 2 }}>{card.label}</div>
+                    </div>
+              )}
+                </div>
+
+                {diagResults.summary.blocked > 0 &&
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: '0.85rem', color: '#991b1b', lineHeight: 1.5 }}>
+                    <strong>Root cause found:</strong> {diagResults.summary.blocked} of {diagResults.summary.total} checked contacts are on Brevo's blocklist.
+                    Brevo still consumes your daily quota for these sends, but silently drops delivery.
+                    To fix: go to <strong>Brevo → Contacts → Blocklist</strong> and remove these addresses, or investigate why they were blocked (prior hard bounce / spam report).
+                  </div>
+            }
+
+                {diagResults.summary.blocked === 0 && diagResults.summary.noEvents === diagResults.summary.total &&
+            <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: '0.85rem', color: '#854d0e', lineHeight: 1.5 }}>
+                    <strong>No events recorded for any checked contact.</strong> Emails may be going to spam, or the sender domain may not be verified in Brevo.
+                    Check: Brevo → Senders → verify your sending domain has correct SPF/DKIM records.
+                  </div>
+            }
+
+                {/* Per-contact table */}
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f9f5f0', borderBottom: '2px solid #E6DDD3' }}>
+                        <th style={{ textAlign: 'left', padding: '7px 10px', fontWeight: 600, color: '#555' }}>Email</th>
+                        <th style={{ textAlign: 'center', padding: '7px 8px', fontWeight: 600, color: '#555' }}>Blocklisted</th>
+                        <th style={{ textAlign: 'left', padding: '7px 8px', fontWeight: 600, color: '#555' }}>Last Event</th>
+                        <th style={{ textAlign: 'left', padding: '7px 8px', fontWeight: 600, color: '#555' }}>Date</th>
+                        <th style={{ textAlign: 'left', padding: '7px 8px', fontWeight: 600, color: '#555' }}>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diagResults.contacts.map((c, i) => {
+                    const isBlocked = c.emailBlacklisted === true;
+                    const isGoodEvent = ['delivered', 'opened', 'clicks'].includes(c.lastEvent);
+                    const isBadEvent = ['hardBounce', 'softBounce', 'blocked', 'spam', 'error'].includes(c.lastEvent);
+                    const eventColor = isGoodEvent ? { bg: '#dcfce7', text: '#166534' } : isBadEvent ? { bg: '#fef2f2', text: '#991b1b' } : c.lastEvent ? { bg: '#fef9c3', text: '#854d0e' } : { bg: '#f3f4f6', text: '#6b7280' };
+                    const eventLabel = { delivered: 'Delivered', hardBounce: 'Hard Bounce', softBounce: 'Soft Bounce', blocked: 'Blocked', spam: 'Spam', deferred: 'Deferred', error: 'Error', opened: 'Opened', clicks: 'Clicked', unsubscribed: 'Unsubscribed' }[c.lastEvent] || c.lastEvent || '—';
+                    const dateStr = c.lastEventDate ? new Date(c.lastEventDate).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid #f0ebe4', background: isBlocked ? '#fff5f5' : 'transparent' }}>
+                            <td style={{ padding: '7px 10px', color: '#333', fontFamily: 'monospace', fontSize: '0.78rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</td>
+                            <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                              {isBlocked ?
+                          <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, background: '#fef2f2', color: '#991b1b' }}>YES</span> :
+                          c.emailBlacklisted === false ?
+                          <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, background: '#dcfce7', color: '#166534' }}>No</span> :
+                          <span style={{ color: '#aaa', fontSize: '0.75rem' }}>—</span>}
+                            </td>
+                            <td style={{ padding: '7px 8px' }}>
+                              <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, background: eventColor.bg, color: eventColor.text }}>{eventLabel}</span>
+                            </td>
+                            <td style={{ padding: '7px 8px', color: '#666', whiteSpace: 'nowrap' }}>{dateStr}</td>
+                            <td style={{ padding: '7px 8px', color: '#888', fontSize: '0.75rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.reason || '—'}</td>
+                          </tr>);
+
+                  })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+          }
+
+            <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+              onClick={() => handleRunDiagnostics(diagGroup === 'A' ? 'B' : 'A')}
+              disabled={diagLoading}
+              style={{ padding: '8px 16px', background: '#f3f4f6', border: '1.5px solid #E6DDD3', borderRadius: 8, color: '#555', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', opacity: diagLoading ? 0.5 : 1 }}>
+                Check Group {diagGroup === 'A' ? 'B' : 'A'} instead
+              </button>
+              <button onClick={() => setShowDiagModal(false)} style={{ padding: '8px 20px', background: '#f3f4f6', border: '1.5px solid #E6DDD3', borderRadius: 8, color: '#555', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>Close</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      {/* Email delivery status modal */}
+      {showDeliveryModal &&
+      <div style={styles.modalOverlay} onClick={() => setShowDeliveryModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Email Delivery Status</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#666' }}>{deliveryEmail} — last 90 days</p>
+              </div>
+              <button onClick={() => setShowDeliveryModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', color: '#888', padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+
+            {deliveryLoading &&
+          <div style={{ textAlign: 'center', padding: '32px 0', color: '#888', fontSize: '0.95rem' }}>
+                Looking up Brevo events…
+              </div>
+          }
+
+            {!deliveryLoading && deliveryError &&
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '12px 16px', color: '#991b1b', fontSize: '0.9rem' }}>
+                <strong>Error:</strong> {deliveryError}
+              </div>
+          }
+
+            {!deliveryLoading && !deliveryError && deliveryEvents.length === 0 &&
+          <div style={{ textAlign: 'center', padding: '32px 0', color: '#888', fontSize: '0.95rem' }}>
+                No delivery events found for this address in the last 90 days.
+                <br /><span style={{ fontSize: '0.8rem' }}>Events appear after a newsletter has been sent to this member.</span>
+              </div>
+          }
+
+            {!deliveryLoading && deliveryEvents.length > 0 &&
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f9f5f0', borderBottom: '2px solid #E6DDD3' }}>
+                      <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, color: '#555' }}>Date</th>
+                      <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, color: '#555' }}>Status</th>
+                      <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, color: '#555' }}>Subject</th>
+                      <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, color: '#555' }}>Reason / Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deliveryEvents.map((ev, i) => {
+                  const isGood = ['delivered', 'opened', 'clicks'].includes(ev.event);
+                  const isBad = ['hardBounce', 'softBounce', 'blocked', 'spam', 'error'].includes(ev.event);
+                  const badgeColor = isGood ? { bg: '#dcfce7', text: '#166534' } : isBad ? { bg: '#fef2f2', text: '#991b1b' } : { bg: '#fef9c3', text: '#854d0e' };
+                  const eventLabel = {
+                    delivered: 'Delivered',
+                    hardBounce: 'Hard Bounce',
+                    softBounce: 'Soft Bounce',
+                    blocked: 'Blocked',
+                    spam: 'Spam',
+                    deferred: 'Deferred',
+                    error: 'Error',
+                    opened: 'Opened',
+                    clicks: 'Clicked',
+                    unsubscribed: 'Unsubscribed'
+                  }[ev.event] || ev.event;
+                  const dateStr = ev.date ? new Date(ev.date).toLocaleString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid #f0ebe4' }}>
+                          <td style={{ padding: '8px 10px', color: '#555', whiteSpace: 'nowrap' }}>{dateStr}</td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 700, background: badgeColor.bg, color: badgeColor.text }}>
+                              {eventLabel}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 10px', color: '#333', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.subject || '—'}</td>
+                          <td style={{ padding: '8px 10px', color: '#666', fontSize: '0.8rem' }}>{ev.reason || (ev.ip ? `IP: ${ev.ip}` : '—')}</td>
+                        </tr>);
+
+                })}
+                  </tbody>
+                </table>
+              </div>
+          }
+
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <button onClick={() => setShowDeliveryModal(false)} style={{ padding: '8px 20px', background: '#f3f4f6', border: '1.5px solid #E6DDD3', borderRadius: 8, color: '#555', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>Close</button>
+            </div>
+          </div>
+        </div>
+      }
+    </div>);
+
+}
+
+function ApiKeyField({ label, keyName, description, statusInfo, value, onChange, onSave, saving, message, placeholder }) {
+  const [showInput, setShowInput] = useState(false);
+  const isSet = statusInfo?.set;
+  const source = statusInfo?.source;
+  const preview = statusInfo?.preview;
+
+  return (
+    <div style={{ padding: '20px 22px', background: '#FFFCF8', border: '1.5px solid #E6DDD3', borderRadius: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1E1915' }}>{label}</span>
+        <span style={{
+          display: 'inline-block',
+          padding: '2px 10px',
+          borderRadius: 10,
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          background: isSet ? '#dcfce7' : '#fef2f2',
+          color: isSet ? '#166534' : '#991b1b'
+        }}>
+          {isSet ? `Configured (${source})` : 'Not configured'}
+        </span>
+        {isSet && preview &&
+        <span style={{ fontSize: '0.78rem', color: '#9ca3af', fontFamily: 'monospace' }}>{preview}</span>
+        }
+      </div>
+      <p style={{ margin: '0 0 14px', fontSize: '0.8rem', color: '#6b7280', lineHeight: 1.55 }}>{description}</p>
+
+      {!showInput ?
+      <button
+        onClick={() => setShowInput(true)}
+        style={{
+          padding: '8px 18px',
+          background: isSet ? 'transparent' : '#7B1E2D',
+          color: isSet ? '#7B1E2D' : '#fff',
+          border: isSet ? '1.5px solid #7B1E2D' : 'none',
+          borderRadius: 8,
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          cursor: 'pointer'
+        }}>
+          {isSet ? 'Update Key' : 'Set Key'}
+        </button> :
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <input
+          type="password"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete="new-password"
+          style={{
+            flex: 1,
+            minWidth: 220,
+            padding: '9px 13px',
+            border: '1.5px solid #E6DDD3',
+            borderRadius: 8,
+            fontSize: '0.9rem',
+            fontFamily: 'monospace',
+            background: '#fff',
+            outline: 'none'
+          }} />
+
+          <button
+          onClick={onSave}
+          disabled={saving || !value.trim()}
+          style={{
+            padding: '9px 20px',
+            background: saving || !value.trim() ? '#ccc' : '#7B1E2D',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            fontSize: '0.88rem',
+            fontWeight: 600,
+            cursor: saving || !value.trim() ? 'default' : 'pointer'
+          }}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+          onClick={() => {setShowInput(false);onChange('');}}
+          style={{
+            padding: '9px 14px',
+            background: 'transparent',
+            border: '1.5px solid #E6DDD3',
+            borderRadius: 8,
+            fontSize: '0.85rem',
+            color: '#666',
+            cursor: 'pointer'
+          }}>
+            Cancel
+          </button>
+        </div>
+      }
+
+      {message &&
+      <p style={{ margin: '8px 0 0', fontSize: '0.82rem', color: message.ok ? '#16a34a' : '#991b1b' }}>
+          {message.ok ? '✓' : '✗'} {message.text}
+        </p>
+      }
     </div>);
 
 }

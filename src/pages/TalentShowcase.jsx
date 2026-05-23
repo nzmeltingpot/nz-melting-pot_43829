@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import useScrollReveal from '../hooks/useScrollReveal';
 import usePageMeta from '../hooks/usePageMeta';
@@ -7,6 +7,9 @@ import Gallery from '../components/Gallery';
 import Breadcrumbs from '../components/Breadcrumbs';
 import AnimatedIcon from '../components/AnimatedIcon';
 import { OrganizationSchema, TalentShowcaseEventSchema } from '../components/SchemaOrg';
+
+const SETTINGS_TABLE_ID = 79250;
+const POSTER_KEY = 'talent_showcase_poster_url';
 
 /* Unique alt text for every gallery image */
 const showcaseAlts = [
@@ -34,10 +37,83 @@ const showcaseImages = Array.from({ length: 16 }, (_, i) => ({
   wide: i === 0 || i === 5 || i === 10
 }));
 
+const DEFAULT_POSTER_URL = 'https://newoaks.s3.us-west-1.amazonaws.com/NewOaks/5500/9a869b79-4261-4a8e-a672-53ffd86904ef.png';
+
 export default function TalentShowcase() {
   const location = useLocation();
-
   useScrollReveal();
+
+  const [posterUrl, setPosterUrl] = useState(DEFAULT_POSTER_URL);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const fileInputRef = useRef(null);
+  const settingIdRef = useRef(null);
+
+  // Load poster URL from DB and check if admin
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: userInfo } = await window.ezsite.apis.getUserInfo();
+        if (userInfo && userInfo.Roles && userInfo.Roles.split(',').includes('Administrator')) {
+          setIsAdmin(true);
+        }
+      } catch (_) {}
+
+      try {
+        const { data, error } = await window.ezsite.apis.tablePage(SETTINGS_TABLE_ID, {
+          PageNo: 1,
+          PageSize: 1,
+          Filters: [{ name: 'setting_key', op: 'Equal', value: POSTER_KEY }]
+        });
+        if (!error && data?.List?.length > 0) {
+          settingIdRef.current = data.List[0].ID;
+          if (data.List[0].setting_value) {
+            setPosterUrl(data.List[0].setting_value);
+          }
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  const handlePosterUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg('');
+    try {
+      const { data: fileId, error: uploadError } = await window.ezsite.apis.upload({
+        filename: file.name,
+        file
+      });
+      if (uploadError) throw new Error(uploadError);
+
+      const { data: url, error: urlError } = await window.ezsite.apis.getUploadUrl(fileId);
+      if (urlError) throw new Error(urlError);
+
+      // Save to DB
+      if (settingIdRef.current) {
+        await window.ezsite.apis.tableUpdate(SETTINGS_TABLE_ID, {
+          ID: settingIdRef.current,
+          setting_value: url
+        });
+      } else {
+        const { data: newRow, error: createError } = await window.ezsite.apis.tableCreate(SETTINGS_TABLE_ID, {
+          setting_key: POSTER_KEY,
+          setting_value: url
+        });
+        if (!createError && newRow?.ID) settingIdRef.current = newRow.ID;
+      }
+
+      setPosterUrl(url);
+      setUploadMsg('Poster updated successfully!');
+    } catch (err) {
+      setUploadMsg('Upload failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
   usePageMeta({
     title: 'Musical Talent Showcase 2026 — NZ Melting Pot Auckland',
     description:
@@ -84,19 +160,8 @@ export default function TalentShowcase() {
 
       <Breadcrumbs items={[{ label: 'Home', to: '/' }, { label: 'Musical Talent Showcase', to: '/musical-talent-showcase' }]} />
 
-      {/* Event Info — "Your turn on stage" on the LEFT, poster on the RIGHT.
-          Poster is sticky on desktop only (handled via CSS class) so the
-          left column's content doesn't overlap it on phones. */}
+      {/* Event Info — "Your turn on stage" on the LEFT, poster on the RIGHT */}
       <section className="event-info" id="poster">
-        <style>{`
-          @media (min-width: 1025px) {
-            .talent-poster-col {
-              position: sticky;
-              top: 20px;
-              align-self: start;
-            }
-          }
-        `}</style>
         <div className="container">
           <div className="event-info__grid" style={{ alignItems: 'flex-start' }}>
 
@@ -151,51 +216,91 @@ export default function TalentShowcase() {
               </ul>
             </div>
 
-            {/* RIGHT — poster image + share buttons (sticky on desktop only,
-                 normal flow on mobile so it doesn't overlap the left column) */}
+            {/* RIGHT — poster image + download buttons */}
             <div
-              className="reveal-right talent-poster-col"
+              className="reveal-right"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 16
+                gap: 16,
+                position: 'sticky',
+                top: 20
               }}>
 
-              <a
-                href="/posters/talent-showcase-2026-poster.jpg"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open the full-size Musical Talent Showcase 2026 poster in a new tab"
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  maxWidth: 600,
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  boxShadow: '0 12px 36px rgba(30, 25, 21, 0.18)',
-                  border: '1px solid #e2e8f0',
-                  background: '#fff',
-                  transition: 'transform 0.25s ease, box-shadow 0.25s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-3px)';
-                  e.currentTarget.style.boxShadow = '0 18px 44px rgba(30, 25, 21, 0.22)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 12px 36px rgba(30, 25, 21, 0.18)';
-                }}>
+              {/* Poster image */}
+              <div style={{ position: 'relative', width: '100%', maxWidth: 600 }}>
+                <a
+                  href={posterUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open the full-size Musical Talent Showcase 2026 poster in a new tab"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    boxShadow: '0 12px 36px rgba(30, 25, 21, 0.18)',
+                    border: '1px solid #e2e8f0',
+                    background: '#fff',
+                    transition: 'transform 0.25s ease, box-shadow 0.25s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-3px)';
+                    e.currentTarget.style.boxShadow = '0 18px 44px rgba(30, 25, 21, 0.22)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 12px 36px rgba(30, 25, 21, 0.18)';
+                  }}>
+                  <img
+                    src={posterUrl}
+                    alt="Musical Talent Showcase 2026 poster — Saturday 18 July, Blockhouse Bay Community Centre, Auckland"
+                    loading="lazy"
+                    width="800"
+                    height="1185"
+                    style={{ width: '100%', height: 'auto', display: 'block' }}
+                    className="object-contain" />
+                </a>
 
-                <img
-                  src="/posters/talent-showcase-2026-poster.jpg"
-                  alt="Musical Talent Showcase 2026 poster — Saturday 18 July, Blockhouse Bay Community Centre, Auckland"
-                  loading="lazy"
-                  width="800"
-                  height="1185"
-                  style={{ width: '100%', height: 'auto', display: 'block' }} />
-
-              </a>
+                {/* Admin-only replace poster button */}
+                {isAdmin &&
+                <div style={{ marginTop: 10, textAlign: 'center' }}>
+                    <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handlePosterUpload} />
+                    <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    style={{
+                      background: '#7B1E2D',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '9px 20px',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      opacity: uploading ? 0.7 : 1,
+                      transition: 'opacity 0.2s'
+                    }}>
+                      {uploading ? 'Uploading…' : 'Replace Poster (Admin)'}
+                    </button>
+                    {uploadMsg &&
+                  <p style={{
+                    marginTop: 6,
+                    fontSize: '0.82rem',
+                    color: uploadMsg.startsWith('Poster updated') ? '#166534' : '#991b1b'
+                  }}>
+                        {uploadMsg}
+                      </p>
+                  }
+                  </div>
+                }
+              </div>
               <div style={{
                 display: 'flex',
                 gap: 10,
@@ -205,11 +310,11 @@ export default function TalentShowcase() {
               }}>
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    "Check out the NZ Melting Pot Musical Talent Showcase 2026 — Saturday 18 July, Blockhouse Bay Community Centre, Auckland. Register to perform or book audience tickets: https://www.nzmeltingpot.com/musical-talent-showcase"
+                    "Musical Talent Showcase 2026 flyer — Saturday 18 July, Blockhouse Bay Community Centre, Auckland.\n\nhttps://www.nzmeltingpot.com/posters/talent-showcase-2026-poster.png"
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Share the Musical Talent Showcase 2026 on WhatsApp"
+                  aria-label="Share the Musical Talent Showcase 2026 flyer on WhatsApp"
                   className="btn btn--primary"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
 
@@ -220,9 +325,9 @@ export default function TalentShowcase() {
                 </a>
                 <a
                   href={`mailto:?subject=${encodeURIComponent(
-                    "NZ Melting Pot Musical Talent Showcase 2026"
+                    "NZ Melting Pot Musical Talent Showcase 2026 — Event Flyer"
                   )}&body=${encodeURIComponent(
-                    "Hi,\n\nThought you might be keen on this — the NZ Melting Pot Musical Talent Showcase 2026.\n\nDate: Saturday, 18 July 2026\nVenue: Blockhouse Bay Community Centre, 524 Blockhouse Bay Road, Auckland 0600\n\nRegister to perform or book audience tickets:\nhttps://www.nzmeltingpot.com/musical-talent-showcase\n\nSee you there!"
+                    "Hi,\n\nPlease find the event flyer for the NZ Melting Pot Musical Talent Showcase 2026 below.\n\nDate: Saturday, 18 July 2026\nVenue: Blockhouse Bay Community Centre, 524 Blockhouse Bay Road, Auckland 0600\n\nFlyer image:\nhttps://www.nzmeltingpot.com/posters/talent-showcase-2026-poster.png\n\nSee you there!"
                   )}`}
                   aria-label="Share the Musical Talent Showcase 2026 by email"
                   className="btn btn--outline"
@@ -264,7 +369,7 @@ export default function TalentShowcase() {
               </div>
               <div className="info-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
-                <div><strong>Performer Fee</strong><span>$10 early bird (until 01/06/2026) · $15 thereafter</span></div>
+                <div><strong>Performer Fee</strong><span>$10 early bird (until 15/06/2026) · $15 thereafter</span></div>
               </div>
               <div className="info-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01" /></svg>

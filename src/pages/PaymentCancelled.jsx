@@ -51,8 +51,8 @@ export default function PaymentCancelled() {
           </div>
         </div>
       </div>
-    </section>
-  );
+    </section>);
+
 }
 
 const primaryBtn = {

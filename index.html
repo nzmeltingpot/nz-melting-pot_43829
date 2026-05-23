@@ -33,7 +33,7 @@
 	</head>
 	<body>
 		<div id="root"></div>
-
+		
 		<!-- Dev Toolbar: Edit Mode + Save — auto-hidden in production (only renders on localhost) -->
 		<div id="devToolbar" style="position:fixed;bottom:20px;right:20px;z-index:99999;display:none;gap:8px;font-family:system-ui,sans-serif;">
 			<button id="saveBtn" onclick="
@@ -43,7 +43,7 @@
 					current.forEach(function(el){
 						const key=el.tagName+'|'+el.className+'|'+Array.from(el.parentElement?el.parentElement.children:[]).indexOf(el);
 						const txt=el.innerText.trim();
-						if(window.__editSnapshot[key]&&window.__editSnapshot[key]!==txt){
+						if(window.__editSnapshot[key]&amp;&amp;window.__editSnapshot[key]!==txt){
 							changes.push({tag:el.tagName,class:el.className.substring(0,60),old:window.__editSnapshot[key].substring(0,200),new:txt.substring(0,200)});
 						}
 					});
@@ -67,7 +67,6 @@
 				cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.3);
 				transition:all .2s;display:none;
 			">💾 Save Changes</button>
-
 			<button id="editToggle" onclick="
 				const on=document.designMode==='on';
 				document.designMode=on?'off':'on';
@@ -96,6 +95,19 @@
 					document.getElementById('devToolbar').style.display = 'flex';
 				}
 			})();
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
 		</script>
 		<noscript>
 			<div style="max-width:700px;margin:2rem auto;padding:0 1rem;font-family:system-ui,sans-serif">

@@ -338,7 +338,7 @@ export function buildParticipantConfirmationEmail({ recipientName, code, amountP
       <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;">
         Musical Talent Showcase 2026 · NZ Melting Pot<br/>
         ${EVENT_DATE} · ${EVENT_VENUE}<br/>
-        <a href="${SITE_URL}" style="color:#9ca3af;">[www.nzmeltingpot.com](https://www.nzmeltingpot.com)</a>
+        <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
       </p>
     </div>
   `;
@@ -610,7 +610,7 @@ export function buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr }) {
       <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;">
         Musical Talent Showcase 2026 · NZ Melting Pot<br/>
         ${EVENT_DATE} · ${EVENT_VENUE}<br/>
-        <a href="${SITE_URL}" style="color:#9ca3af;">[www.nzmeltingpot.com](https://www.nzmeltingpot.com)</a>
+        <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
       </p>
     </div>
   `;

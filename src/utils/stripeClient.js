@@ -1,22 +1,11 @@
 /**
- * Single helper for talking to our Stripe Checkout backend.
- *
- * Uses Vite's env-replacement at build time:
- *   VITE_STRIPE_BACKEND_URL — base URL of the Vercel app hosting the function.
- *                              e.g. "https://nzmp-website.vercel.app"
- *
- * Falls back to "" (same origin) if not set, which is correct when the React
- * frontend is itself deployed on Vercel.
- *
- * If the env var is not set AND the frontend is deployed on a different origin
- * (e.g. Ezsite), the call will obviously fail — set VITE_STRIPE_BACKEND_URL
- * before building for production.
+ * Stripe Checkout helper — calls the EzSite Deno backend via the framework bridge.
+ * Uses window.ezsite.apis.run() — NOT fetch('/api/...') — as EzSite is not a
+ * Vercel/Express server; all backend calls go through the function bridge.
  */
 
-const STRIPE_BACKEND_URL = import.meta.env.VITE_STRIPE_BACKEND_URL || '';
-
 /**
- * Create a Stripe Checkout Session via our backend.
+ * Create a Stripe Checkout Session via our Deno backend.
  *
  * @param {Object} params
  * @param {number} params.amount             — NZD cents (integer, e.g. 3000)
@@ -26,27 +15,23 @@ const STRIPE_BACKEND_URL = import.meta.env.VITE_STRIPE_BACKEND_URL || '';
  * @param {string} params.description
  * @param {string} params.success_url
  * @param {string} params.cancel_url
- * @returns {Promise<{ data?: { url: string }, error?: string }>}
+ * @returns {Promise<{ data?: { url: string, session_id: string }, error?: string }>}
  */
 export async function createStripeCheckout(params) {
-  const endpoint = `${STRIPE_BACKEND_URL}/api/createStripeCheckout`;
-
   try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
+    const { data, error } = await window.ezsite.apis.run({
+      path: 'payment/createStripeCheckout',
+      methodName: 'createStripeCheckout',
+      param: [params]
     });
 
-    const json = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      return { error: json?.error || `Backend returned ${res.status}` };
+    if (error) {
+      return { error: String(error) };
     }
-    if (!json?.url) {
+    if (!data?.url) {
       return { error: 'Backend did not return a Stripe Checkout URL.' };
     }
-    return { data: { url: json.url } };
+    return { data };
   } catch (err) {
     return { error: err?.message || 'Network error contacting Stripe backend.' };
   }

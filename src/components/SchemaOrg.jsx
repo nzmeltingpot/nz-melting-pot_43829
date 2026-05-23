@@ -77,7 +77,7 @@ export function TalentShowcaseEventSchema() {
         },
         image: `${SITE_URL}/images/talent-showcase/showcase-01.webp`,
         description:
-        "Auckland's annual stage for soloists, duets, and trios — vocalists and instrumentalists. Sign up, show up, and let your music do the talking.",
+        "Auckland's annual stage for solo artists, instrumentalists, and groups. Sign up, show up, and let your music do the talking.",
         organizer: {
           '@type': 'Organization',
           name: 'NZ Melting Pot',

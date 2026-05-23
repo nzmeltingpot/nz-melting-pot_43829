@@ -16,8 +16,8 @@ const SETTINGS_TABLE_ID = 79250;
 const BOOKINGS_TABLE_ID = 82471;
 
 const PRICING = {
-  TICKET_PRICE: 10,                          // NZD per audience ticket
-  TICKETS_ON_SALE_UNTIL: '2026-07-18'       // Last day tickets can be bought (event day)
+  TICKET_PRICE: 10, // NZD per audience ticket
+  TICKETS_ON_SALE_UNTIL: '2026-07-18' // Last day tickets can be bought (event day)
 };
 
 const DEV_MOCK_STRIPE = false;
@@ -98,8 +98,8 @@ export default function BookingForm() {
       buyerName.trim() !== '' &&
       buyerEmail.trim() !== '' &&
       ticketCount >= 1 &&
-      ticketCount <= MAX_TICKETS
-    );
+      ticketCount <= MAX_TICKETS);
+
   }, [buyerName, buyerEmail, ticketCount]);
 
   const handleAttendeeNameChange = useCallback((idx, value) => {
@@ -235,8 +235,8 @@ export default function BookingForm() {
             For any queries, please <a href="/contact" style={{ color: '#ffd700', fontWeight: 600 }}>contact us</a>.
           </p>
         </div>
-      </div>
-    );
+      </div>);
+
   }
 
   /* ---------------------- Booking form ---------------------- */
@@ -267,19 +267,19 @@ export default function BookingForm() {
           <input type="text" id="bk-website" name="website_url" tabIndex={-1} autoComplete="off" />
         </div>
 
-        {errorMessage && (
-          <div className="form-error" role="alert" style={{
-            padding: '12px 16px',
-            marginBottom: '20px',
-            backgroundColor: 'rgba(254, 226, 226, 0.95)',
-            border: '1px solid rgba(220, 38, 38, 0.3)',
-            borderRadius: '8px',
-            color: '#991b1b',
-            fontSize: '14px'
-          }}>
+        {errorMessage &&
+        <div className="form-error" role="alert" style={{
+          padding: '12px 16px',
+          marginBottom: '20px',
+          backgroundColor: 'rgba(254, 226, 226, 0.95)',
+          border: '1px solid rgba(220, 38, 38, 0.3)',
+          borderRadius: '8px',
+          color: '#991b1b',
+          fontSize: '14px'
+        }}>
             {errorMessage}
           </div>
-        )}
+        }
 
         <div className="form-grid">
           <div className="form-group">
@@ -328,20 +328,20 @@ export default function BookingForm() {
               value={ticketCount}
               onChange={(e) => setTicketCount(parseInt(e.target.value, 10))}
               style={{ color: '#ffffff' }}>
-              {Array.from({ length: MAX_TICKETS }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n} style={{ color: '#333' }}>
+              {Array.from({ length: MAX_TICKETS }, (_, i) => i + 1).map((n) =>
+              <option key={n} value={n} style={{ color: '#333' }}>
                   {n} {n === 1 ? 'ticket' : 'tickets'} — ${n * PRICING.TICKET_PRICE} NZD
                 </option>
-              ))}
+              )}
             </select>
           </div>
 
           {/* Optional attendee names — appears once they pick > 1 */}
-          {ticketCount > 1 && (
-            <div className="form-group form-group--full" style={{
-              animation: 'fadeInSlide 0.4s ease-out forwards',
-              opacity: 0
-            }}>
+          {ticketCount > 1 &&
+          <div className="form-group form-group--full" style={{
+            animation: 'fadeInSlide 0.4s ease-out forwards',
+            opacity: 0
+          }}>
               <style>{`
                 @keyframes fadeInSlide {
                   from { opacity: 0; transform: translateY(-10px); }
@@ -350,56 +350,56 @@ export default function BookingForm() {
               `}</style>
               <label>Attendee Names (optional — for personalised tickets)</label>
               <div style={{
-                background: 'rgba(255, 255, 255, 0.08)',
-                border: '1px solid rgba(255, 255, 255, 0.15)',
-                borderRadius: 8,
-                padding: 14
-              }}>
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: 8,
+              padding: 14
+            }}>
                 <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: 'rgba(255,255,255,0.75)' }}>
                   If you'd like each ticket personalised, enter the attendee's name. Leave blank to use your name on every ticket.
                 </p>
-                {Array.from({ length: ticketCount }, (_, i) => i + 1).map((n) => (
-                  <input
-                    key={n}
-                    type="text"
-                    placeholder={`Ticket ${n} — attendee name`}
-                    maxLength={100}
-                    value={attendeeNames[n] || ''}
-                    onChange={(e) => handleAttendeeNameChange(n, e.target.value)}
-                    style={{
-                      width: '100%',
-                      marginBottom: 8,
-                      padding: '10px 12px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(255,255,255,0.18)',
-                      background: 'rgba(255,255,255,0.06)',
-                      color: '#fff',
-                      fontSize: '0.9rem',
-                      boxSizing: 'border-box'
-                    }} />
-                ))}
+                {Array.from({ length: ticketCount }, (_, i) => i + 1).map((n) =>
+              <input
+                key={n}
+                type="text"
+                placeholder={`Ticket ${n} — attendee name`}
+                maxLength={100}
+                value={attendeeNames[n] || ''}
+                onChange={(e) => handleAttendeeNameChange(n, e.target.value)}
+                style={{
+                  width: '100%',
+                  marginBottom: 8,
+                  padding: '10px 12px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#fff',
+                  fontSize: '0.9rem',
+                  boxSizing: 'border-box'
+                }} />
+              )}
               </div>
             </div>
-          )}
+          }
 
           {/* Total summary */}
-          {isFormComplete && (
-            <div
-              className="form-group form-group--full"
-              style={{
-                animation: 'fadeInSlide 0.4s ease-out forwards',
-                opacity: 0
-              }}>
+          {isFormComplete &&
+          <div
+            className="form-group form-group--full"
+            style={{
+              animation: 'fadeInSlide 0.4s ease-out forwards',
+              opacity: 0
+            }}>
               <label>Booking Summary</label>
               <div style={{
-                padding: '14px 16px',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                border: '1px solid rgba(0, 0, 0, 0.1)',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                color: '#2d3748',
-                boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.06)'
-              }}>
+              padding: '14px 16px',
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              border: '1px solid rgba(0, 0, 0, 0.1)',
+              borderRadius: '8px',
+              fontSize: '0.85rem',
+              color: '#2d3748',
+              boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.06)'
+            }}>
                 <p style={{ margin: '0 0 6px 0' }}>
                   <strong>Total: ${totalAmount} NZD</strong> ({ticketCount} × ${PRICING.TICKET_PRICE})
                 </p>
@@ -410,7 +410,7 @@ export default function BookingForm() {
                 </p>
               </div>
             </div>
-          )}
+          }
         </div>
 
         <div className="form__submit">
@@ -432,14 +432,14 @@ export default function BookingForm() {
               opacity: isSubmitting ? 0.6 : 1,
               cursor: isSubmitting ? 'not-allowed' : 'pointer'
             }}>
-            {isSubmitting
-              ? 'Redirecting to payment…'
-              : isFormComplete
-                ? `Pay & Book — $${totalAmount} NZD`
-                : 'Pay & Book'}
+            {isSubmitting ?
+            'Redirecting to payment…' :
+            isFormComplete ?
+            `Pay & Book — $${totalAmount} NZD` :
+            'Pay & Book'}
           </button>
         </div>
       </form>
-    </div>
-  );
+    </div>);
+
 }

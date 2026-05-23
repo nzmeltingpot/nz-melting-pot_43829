@@ -557,7 +557,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
 
           {/* Performance Type - Vocal or Instrumental */}
           <div className="form-group">
-            <label htmlFor={`${idPrefix}-performance-type`} className="">Vocal  or Instrumental *</label>
+            <label htmlFor={`${idPrefix}-performance-type`} className="">Vocal  or Instrumental *</label>
             <select
               id={`${idPrefix}-performance-type`}
               name="performance_type"

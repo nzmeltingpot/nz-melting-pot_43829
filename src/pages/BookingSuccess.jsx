@@ -86,13 +86,14 @@ export default function BookingSuccess() {
 
       // 2. Send buyer their tickets
       try {
-        const { subject, html } = buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr });
+        const { subject, html, text } = buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr });
         console.log('📧 Buyer email — subject:', subject, '— html length:', html.length, '— to:', bookingData.buyer_email);
         const result = await window.ezsite.apis.sendEmail({
           from: 'Musical Talent Showcase <noreply@nzmeltingpot.com>',
           to: [bookingData.buyer_email],
           subject,
-          html
+          html,
+          text
         });
         console.log('📧 Buyer email — result:', JSON.stringify(result));
         if (result?.error) {
@@ -122,7 +123,7 @@ export default function BookingSuccess() {
       }
 
       // 4. Clear stash
-      try { sessionStorage.removeItem('pendingBooking'); } catch {}
+      try {sessionStorage.removeItem('pendingBooking');} catch {}
 
       setWarnings(localWarnings);
       setStatus(localWarnings.length > 0 ? 'partial' : 'success');
@@ -134,16 +135,16 @@ export default function BookingSuccess() {
       <div className="container" style={{ maxWidth: 640, width: '100%' }}>
         <div style={cardStyle}>
 
-          {status === 'processing' && (
-            <>
+          {status === 'processing' &&
+          <>
               <div style={{ fontSize: '3rem', textAlign: 'center', marginBottom: 16 }}>⏳</div>
               <h1 style={headingStyle}>Confirming your booking…</h1>
               <p style={{ textAlign: 'center', color: '#6b7280' }}>This usually takes just a moment. Please don't close this page.</p>
             </>
-          )}
+          }
 
-          {status === 'orphan' && (
-            <>
+          {status === 'orphan' &&
+          <>
               <div style={{ fontSize: '3rem', textAlign: 'center', marginBottom: 16 }}>✅</div>
               <h1 style={headingStyle}>Payment Received</h1>
               <p style={{ textAlign: 'center', lineHeight: 1.6, color: '#374151' }}>
@@ -152,10 +153,10 @@ export default function BookingSuccess() {
                 a few minutes, please <Link to="/contact" style={linkStyle}>contact us</Link>.
               </p>
             </>
-          )}
+          }
 
-          {(status === 'success' || status === 'partial') && (
-            <>
+          {(status === 'success' || status === 'partial') &&
+          <>
               <div style={{ fontSize: '3.5rem', textAlign: 'center', marginBottom: 16 }}>🎟️</div>
               <h1 style={headingStyle}>Tickets Confirmed!</h1>
               <p style={{ textAlign: 'center', color: '#374151', fontSize: '1.05rem', lineHeight: 1.6 }}>
@@ -174,13 +175,13 @@ export default function BookingSuccess() {
                 </div>
               </div>
 
-              {warnings.length > 0 && (
-                <div style={warnBoxStyle}>
-                  {warnings.map((w, i) => (
-                    <p key={i} style={{ margin: i === 0 ? 0 : '6px 0 0 0', fontSize: '0.9rem' }}>⚠️ {w}</p>
-                  ))}
-                </div>
+              {warnings.length > 0 &&
+            <div style={warnBoxStyle}>
+                  {warnings.map((w, i) =>
+              <p key={i} style={{ margin: i === 0 ? 0 : '6px 0 0 0', fontSize: '0.9rem' }}>⚠️ {w}</p>
               )}
+                </div>
+            }
 
               <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '16px 20px', margin: '20px 0', fontSize: '0.92rem', lineHeight: 1.65, color: '#374151' }}>
                 <p style={{ margin: '0 0 8px 0', fontWeight: 600, color: '#111827' }}>What happens next?</p>
@@ -195,12 +196,12 @@ export default function BookingSuccess() {
                 <Link to="/" style={btnStyle}>Return to Home</Link>
               </div>
             </>
-          )}
+          }
 
         </div>
       </div>
-    </section>
-  );
+    </section>);
+
 }
 
 const cardStyle = {

@@ -45,9 +45,9 @@ export default function Contact() {
     };
     const subjectLabel = subjectMap[formData.subject] || formData.subject;
 
-    const escapeHtml = (s) => String(s ?? '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const escapeHtml = (s) => String(s ?? '').
+    replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').
+    replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
     const messageHtml = escapeHtml(formData.message).replace(/\n/g, '<br/>');
 

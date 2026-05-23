@@ -49,8 +49,8 @@ export default function Footer() {
             fontSize: '0.78rem',
             color: '#ffffff',
             fontStyle: 'italic'
-          }}>
-            — Smart sites &amp; smart SEO that get your business found.
+          }} className="">
+            — Smart sites & smart SEO that get your business found., click here to find out more
           </span>
         </div>
 

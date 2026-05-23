@@ -65,6 +65,9 @@ export async function sendBulkEmail(params) {
 
   const sent = [];
   const failures = [];
+  const startTime = Date.now();
+
+  console.log(`[sendBulkEmail] Starting send to ${recipients.length} recipient(s)`);
 
   for (let i = 0; i < recipients.length; i++) {
     const recipient = recipients[i];
@@ -73,6 +76,8 @@ export async function sendBulkEmail(params) {
       failures.push({ email: "(missing)", error: "Recipient email is missing." });
       continue;
     }
+
+    console.log(`[sendBulkEmail] [${i + 1}/${recipients.length}] Sending to: ${recipient.email}`);
 
     // Build Brevo payload
     const payload = {
@@ -115,9 +120,13 @@ export async function sendBulkEmail(params) {
     }
   }
 
+  const durationMs = Date.now() - startTime;
+  console.log(`[sendBulkEmail] Done — sent: ${sent.length}, failed: ${failures.length}, durationMs: ${durationMs}`);
+
   return {
     sent: sent.length,
     failed: failures.length,
-    failures
+    failures,
+    durationMs
   };
 }
