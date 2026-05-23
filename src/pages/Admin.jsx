@@ -98,8 +98,6 @@ export default function Admin() {
   const [saveSuccess, setSaveSuccess] = useState({});
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [backupLoading, setBackupLoading] = useState(false);
-  const [backupStatus, setBackupStatus] = useState(null); // null | 'success' | string (error)
 
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -483,42 +481,6 @@ export default function Admin() {
       setDiagError(err?.message || 'Unexpected error running diagnostics.');
     }
     setDiagLoading(false);
-  };
-
-  const downloadSourceBackup = async () => {
-    setBackupLoading(true);
-    setBackupStatus(null);
-    try {
-      const { data, error } = await window.ezsite.apis.run({
-        path: 'backup/exportProject',
-        methodName: 'exportProject',
-        param: []
-      });
-      if (error) throw new Error(error);
-
-      const zip = new JSZip();
-      const folder = zip.folder('nzmeltingpot-backup');
-      for (const file of data.files || []) {
-        folder.file(file.path, file.content);
-      }
-
-      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const dateStr = new Date().toISOString().split('T')[0];
-      a.download = `nzmeltingpot-backup-${dateStr}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setBackupStatus(`success:${data.totalFiles || data.files.length} files`);
-    } catch (e) {
-      setBackupStatus(`error:${e.message}`);
-    } finally {
-      setBackupLoading(false);
-    }
   };
 
   const exportMembers = async () => {
@@ -2249,38 +2211,6 @@ export default function Admin() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-            {/* Platform File Manager */}
-            <div style={{ padding: 20, background: '#f8f4ef', border: '1px solid #E6DDD3', borderRadius: 10 }}>
-              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
-                📂 Platform File Manager
-              </h3>
-              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#666', lineHeight: 1.6 }}>
-                Browse, upload, and download files stored on the EzSite platform — including images, documents, and other
-                uploaded assets.
-              </p>
-              <a
-                href="https://www.ezsite.ai"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '10px 20px',
-                  background: '#7B1E2D',
-                  color: '#fff',
-                  borderRadius: 7,
-                  textDecoration: 'none',
-                  fontSize: '0.9rem',
-                  fontWeight: 600
-                }}>
-                Open EzSite File Manager ↗
-              </a>
-              <p style={{ margin: '10px 0 0', fontSize: '0.78rem', color: '#999' }}>
-                Opens in a new tab → navigate to your project → Files section.
-              </p>
-            </div>
-
             {/* Data Exports */}
             <div style={{ padding: 20, background: '#f8f4ef', border: '1px solid #E6DDD3', borderRadius: 10 }}>
               <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
@@ -2321,52 +2251,6 @@ export default function Admin() {
                   ⬇ Members CSV
                 </button>
               </div>
-            </div>
-
-            {/* Source Code Backup */}
-            <div style={{ padding: 20, background: '#f0f4ff', border: '1px solid #c7d3f5', borderRadius: 10 }}>
-              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
-                💾 Source Code Backup
-              </h3>
-              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#444', lineHeight: 1.6 }}>
-                Downloads a ZIP of all your project source files — <code>src/</code>, <code>public/</code>,
-                <code>__easysite_nodejs__/</code>, <code>index.html</code>, <code>package.json</code>,
-                <code>vite.config.js</code> etc. Excludes <code>.env</code>, <code>node_modules</code>,
-                and <code>dist</code> for safety.
-              </p>
-              <button
-                onClick={downloadSourceBackup}
-                disabled={backupLoading}
-                style={{
-                  padding: '10px 20px',
-                  background: backupLoading ? '#7a8ab5' : '#3b4fc4',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 7,
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  cursor: backupLoading ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}>
-                {backupLoading ?
-                <>⏳ Reading files…</> :
-                <>⬇ Download Source ZIP</>}
-              </button>
-              {backupStatus && backupStatus.startsWith('success') &&
-              <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: '#1a6e2e', fontWeight: 600 }}>
-                  ✅ Backup downloaded — {backupStatus.split(':')[1]} files included.
-                </p>
-              }
-              {backupStatus && backupStatus.startsWith('error') &&
-              <p style={{ margin: '10px 0 0', fontSize: '0.82rem', color: '#c0392b', fontWeight: 600 }}>
-                  ❌ {backupStatus.split(':').slice(1).join(':')}
-                </p>
-              }
-              <p style={{ margin: '12px 0 0', fontSize: '0.78rem', color: '#666', lineHeight: 1.5 }}>
-                Keep a dated copy somewhere safe (local drive, Google Drive, GitHub). Re-download any time you make significant changes.
-              </p>
             </div>
 
           </div>
