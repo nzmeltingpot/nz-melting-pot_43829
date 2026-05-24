@@ -49,14 +49,22 @@ function formatNZDateTime(dateStr) {
 /**
  * Generate a real, scannable QR code as an inline <img> tag.
  * Uses the free qrserver.com API — no library or API key required.
- * The QR encodes the registration/booking code (e.g. "TSC26001").
+ *
+ * The QR encodes the FULL gate check-in URL, e.g.:
+ *   https://www.nzmeltingpot.com/check-in?code=TSC26001
+ *
+ * This means gate staff can scan the ticket with their phone's native
+ * camera app, which opens the check-in page automatically — no extra
+ * app or QR library is needed.
+ *
  * Works in all major email clients (Gmail, Outlook, Apple Mail).
  *
- * @param {string} codeStr  - The text to encode (registration or booking code)
+ * @param {string} codeStr  - The registration/booking code (e.g. "TSC26001")
  * @returns {string}        - HTML <img> element ready to embed in email
  */
 function generateQRCode(codeStr) {
-  const encoded = encodeURIComponent(codeStr);
+  const checkInUrl = `${SITE_URL}/check-in?code=${encodeURIComponent(codeStr)}`;
+  const encoded = encodeURIComponent(checkInUrl);
   const url = `https://api.qrserver.com/v1/create-qr-code/?size=105x105&data=${encoded}&format=png&margin=4`;
   return `<img src="${url}" alt="QR code for ${escapeHtml(codeStr)}" width="105" height="105" style="display:block;border:2px solid #e5e7eb;border-radius:6px;background:#fff;" />`;
 }
