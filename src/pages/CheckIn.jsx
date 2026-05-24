@@ -143,7 +143,7 @@ export default function CheckIn() {
   /* Camera scanning */
   const [camReady, setCamReady]   = useState(false);
   const [camError, setCamError]   = useState('');
-  const [scanning, setScanning]   = useState(true);    // camera mode vs manual mode
+  const [scanning]                = useState(true);    // camera always on when PIN passed
 
   /* Result state: 'idle' | 'processing' | 'ok' | 'duplicate' | 'notfound' | 'error' */
   const [scanState, setScanState] = useState('idle');
@@ -440,218 +440,163 @@ export default function CheckIn() {
         {/* ── Top bar ── */}
         <div style={topBarStyle}>
           <span style={{ fontSize: '1rem', fontWeight: 700 }}>🎟️ Gate Check-In</span>
-          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
-            {/* Toggle camera / manual */}
-            <button
-              onClick={() => { setScanning((s) => !s); setScanState('idle'); setScanInfo(null); }}
-              style={toggleBtnStyle}
-              title={scanning ? 'Switch to manual entry' : 'Switch to camera scanner'}
-            >
-              {scanning ? '⌨️' : '📷'}
-            </button>
-            {/* Lock */}
-            <button
-              onClick={() => { sessionStorage.removeItem(PIN_KEY); setPinOk(false); stopCamera(); }}
-              style={toggleBtnStyle}
-              title="Lock screen"
-            >
-              🔒
-            </button>
-          </div>
+          <button
+            onClick={() => { sessionStorage.removeItem(PIN_KEY); setPinOk(false); stopCamera(); }}
+            style={{ ...toggleBtnStyle, marginLeft: 'auto' }}
+            title="Lock screen"
+          >
+            🔒
+          </button>
         </div>
 
         {/* ── Camera viewfinder ── */}
-        {scanning && (
-          <div style={viewfinderWrap}>
-            {/* Video stream */}
-            <video
-              ref={videoRef}
-              style={videoStyle}
-              playsInline
-              muted
-              autoPlay
+        <div style={viewfinderWrap}>
+          <video ref={videoRef} style={videoStyle} playsInline muted autoPlay />
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+          {/* Result overlay */}
+          {scanState !== 'idle' && (
+            <div style={{ ...overlayStyle, background: overlayBg }}>
+              {scanState === 'processing' && <div style={overlayText}>⏳</div>}
+              {scanState === 'ok' && scanInfo && (
+                <>
+                  <div style={{ fontSize: '3rem', lineHeight: 1 }}>✅</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: 6 }}>{scanInfo.name}</div>
+                  {scanInfo.others?.length > 0 && (
+                    <div style={{ fontSize: '0.9rem', marginTop: 2, opacity: 0.9 }}>+ {scanInfo.others.join(', ')}</div>
+                  )}
+                  <div style={{ fontSize: '0.85rem', marginTop: 8, opacity: 0.9 }}>
+                    {capitalise(scanInfo.category)} — {scanInfo.song}
+                  </div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 4, letterSpacing: '2px', fontFamily: 'monospace' }}>
+                    {scanInfo.code}
+                  </div>
+                </>
+              )}
+              {scanState === 'duplicate' && scanInfo && (
+                <>
+                  <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>⚠️</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: 6 }}>Already Checked In</div>
+                  <div style={{ fontSize: '1rem', marginTop: 4 }}>{scanInfo.name}</div>
+                  {scanInfo.time && <div style={{ fontSize: '0.85rem', marginTop: 4, opacity: 0.85 }}>at {fmtTime(scanInfo.time)}</div>}
+                </>
+              )}
+              {(scanState === 'notfound' || scanState === 'error') && scanInfo && (
+                <>
+                  <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>❌</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 6 }}>
+                    {scanState === 'notfound' ? 'Code Not Found' : 'Lookup Error'}
+                  </div>
+                  <div style={{ fontSize: '0.9rem', marginTop: 4, fontFamily: 'monospace', letterSpacing: '2px' }}>{scanInfo.code}</div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Aim guide */}
+          {scanState === 'idle' && camReady && (
+            <div style={aimGuideStyle}>
+              <div style={aimCorners} />
+              <p style={aimLabel}>Point at QR code</p>
+            </div>
+          )}
+
+          {/* Camera loading */}
+          {!camReady && !camError && (
+            <div style={camLoadStyle}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
+              <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>Starting camera…</div>
+            </div>
+          )}
+
+          {/* Camera error */}
+          {camError && (
+            <div style={camLoadStyle}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
+              <div style={{ fontSize: '0.85rem', color: '#f87171', textAlign: 'center', maxWidth: 260 }}>{camError}</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Manual entry — always visible ── */}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid #2a2a2a' }}>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Or type code manually
+          </div>
+          <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: 8 }}>
+            <input
+              ref={manualRef}
+              type="text"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+              placeholder="TSC26001"
+              maxLength={12}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              style={codeInputStyle}
             />
+            <button type="submit" disabled={!manualCode.trim() || !!manualBusy} style={goBtn}>
+              {manualBusy ? '…' : '→'}
+            </button>
+          </form>
 
-            {/* Hidden canvas for frame capture */}
-            <canvas ref={canvasRef} style={{ display: 'none' }} />
+          {/* Inline result for manual entry */}
+          {scanState !== 'idle' && scanInfo && (
+            <div style={{
+              ...inlineResult,
+              background: scanState === 'ok' ? '#dcfce7' : scanState === 'duplicate' ? '#fef3c7' : '#fef2f2',
+              borderColor: scanState === 'ok' ? '#86efac' : scanState === 'duplicate' ? '#fbbf24' : '#fca5a5',
+              color: scanState === 'ok' ? '#166534' : scanState === 'duplicate' ? '#92400e' : '#dc2626',
+            }}>
+              {scanState === 'ok' && (
+                <>
+                  <div style={{ fontSize: '1.5rem' }}>✅</div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{scanInfo.name}</div>
+                    <div style={{ fontSize: '0.85rem', marginTop: 2 }}>{capitalise(scanInfo.category)} — {scanInfo.song}</div>
+                    <div style={{ fontSize: '0.8rem', marginTop: 2, fontFamily: 'monospace', letterSpacing: '2px' }}>
+                      {scanInfo.code} · Checked in ✓
+                    </div>
+                  </div>
+                </>
+              )}
+              {scanState === 'duplicate' && (
+                <>
+                  <div style={{ fontSize: '1.5rem' }}>⚠️</div>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>Already Checked In</div>
+                    <div style={{ fontSize: '0.88rem' }}>{scanInfo.name}</div>
+                    {scanInfo.time && <div style={{ fontSize: '0.8rem' }}>at {fmtTime(scanInfo.time)}</div>}
+                  </div>
+                </>
+              )}
+              {(scanState === 'notfound' || scanState === 'error') && (
+                <>
+                  <div style={{ fontSize: '1.5rem' }}>❌</div>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>
+                      {scanState === 'notfound' ? 'Code not found' : 'Lookup error'}
+                    </div>
+                    <div style={{ fontSize: '0.85rem' }}>
+                      {scanState === 'notfound'
+                        ? `"${scanInfo.code}" — check spelling or contact admin`
+                        : (scanInfo.msg || 'Please try again')}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-            {/* Scan result overlay (flashes over the video) */}
-            {scanState !== 'idle' && (
-              <div style={{ ...overlayStyle, background: overlayBg }}>
-                {scanState === 'processing' && (
-                  <div style={overlayText}>⏳</div>
-                )}
-                {scanState === 'ok' && scanInfo && (
-                  <>
-                    <div style={{ fontSize: '3rem', lineHeight: 1 }}>✅</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: 6 }}>
-                      {scanInfo.name}
-                    </div>
-                    {scanInfo.others?.length > 0 && (
-                      <div style={{ fontSize: '0.9rem', marginTop: 2, opacity: 0.9 }}>
-                        + {scanInfo.others.join(', ')}
-                      </div>
-                    )}
-                    <div style={{ fontSize: '0.85rem', marginTop: 8, opacity: 0.9 }}>
-                      {capitalise(scanInfo.category)} — {scanInfo.song}
-                    </div>
-                    <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 4, letterSpacing: '2px', fontFamily: 'monospace' }}>
-                      {scanInfo.code}
-                    </div>
-                  </>
-                )}
-                {scanState === 'duplicate' && scanInfo && (
-                  <>
-                    <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>⚠️</div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: 6 }}>
-                      Already Checked In
-                    </div>
-                    <div style={{ fontSize: '1rem', marginTop: 4 }}>{scanInfo.name}</div>
-                    {scanInfo.time && (
-                      <div style={{ fontSize: '0.85rem', marginTop: 4, opacity: 0.85 }}>
-                        at {fmtTime(scanInfo.time)}
-                      </div>
-                    )}
-                  </>
-                )}
-                {(scanState === 'notfound' || scanState === 'error') && scanInfo && (
-                  <>
-                    <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>❌</div>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 6 }}>
-                      {scanState === 'notfound' ? 'Code Not Found' : 'Lookup Error'}
-                    </div>
-                    <div style={{ fontSize: '0.9rem', marginTop: 4, fontFamily: 'monospace', letterSpacing: '2px' }}>
-                      {scanInfo.code}
-                    </div>
-                    {scanState === 'notfound' && (
-                      <div style={{ fontSize: '0.8rem', marginTop: 6, opacity: 0.85 }}>
-                        Check the code manually or contact admin
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Aim guide when idle */}
-            {scanState === 'idle' && camReady && (
-              <div style={aimGuideStyle}>
-                <div style={aimCorners} />
-                <p style={aimLabel}>Point at QR code</p>
-              </div>
-            )}
-
-            {/* Camera loading */}
-            {!camReady && !camError && (
-              <div style={camLoadStyle}>
-                <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
-                <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>Starting camera…</div>
-              </div>
-            )}
-
-            {/* Camera error */}
-            {camError && (
-              <div style={camLoadStyle}>
-                <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
-                <div style={{ fontSize: '0.85rem', color: '#dc2626', textAlign: 'center', maxWidth: 260 }}>
-                  {camError}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Manual entry mode ── */}
-        {!scanning && (
-          <div style={{ padding: '20px' }}>
-            <label style={labelStyle}>
-              Registration Code
-              <p style={{ fontWeight: 400, fontSize: '0.78rem', color: '#6b7280', margin: '2px 0 8px' }}>
-                Type or paste the code from the ticket
-              </p>
-            </label>
-            <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: 8 }}>
-              <input
-                ref={manualRef}
-                type="text"
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
-                placeholder="TSC26001"
-                maxLength={12}
-                autoCapitalize="characters"
-                autoCorrect="off"
-                spellCheck={false}
-                style={codeInputStyle}
-              />
-              <button type="submit" disabled={!manualCode.trim() || !!manualBusy} style={goBtn}>
-                {manualBusy ? '…' : '→'}
-              </button>
-            </form>
-
-            {/* Show result inline for manual mode */}
-            {scanState !== 'idle' && scanInfo && (
-              <div style={{
-                ...inlineResult,
-                background: scanState === 'ok' ? '#dcfce7' : scanState === 'duplicate' ? '#fef3c7' : '#fef2f2',
-                borderColor: scanState === 'ok' ? '#86efac' : scanState === 'duplicate' ? '#fbbf24' : '#fca5a5',
-                color: scanState === 'ok' ? '#166534' : scanState === 'duplicate' ? '#92400e' : '#dc2626',
-              }}>
-                {scanState === 'ok' && (
-                  <>
-                    <div style={{ fontSize: '1.5rem' }}>✅</div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{scanInfo.name}</div>
-                      <div style={{ fontSize: '0.85rem', marginTop: 2 }}>
-                        {capitalise(scanInfo.category)} — {scanInfo.song}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', marginTop: 2, fontFamily: 'monospace', letterSpacing: '2px' }}>
-                        {scanInfo.code} · Checked in ✓
-                      </div>
-                    </div>
-                  </>
-                )}
-                {scanState === 'duplicate' && (
-                  <>
-                    <div style={{ fontSize: '1.5rem' }}>⚠️</div>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>Already Checked In</div>
-                      <div style={{ fontSize: '0.88rem' }}>{scanInfo.name}</div>
-                      {scanInfo.time && <div style={{ fontSize: '0.8rem' }}>at {fmtTime(scanInfo.time)}</div>}
-                    </div>
-                  </>
-                )}
-                {(scanState === 'notfound' || scanState === 'error') && (
-                  <>
-                    <div style={{ fontSize: '1.5rem' }}>❌</div>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>
-                        {scanState === 'notfound' ? 'Code not found' : 'Lookup error'}
-                      </div>
-                      <div style={{ fontSize: '0.85rem' }}>
-                        {scanState === 'notfound'
-                          ? `"${scanInfo.code}" — check spelling or contact admin`
-                          : (scanInfo.msg || 'Please try again')}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Bottom bar: count + hint ── */}
+        {/* ── Bottom bar ── */}
         <div style={bottomBar}>
-          {count > 0 && (
-            <span style={{ color: '#16a34a', fontWeight: 600 }}>
-              {count} checked in today
-            </span>
-          )}
-          {count === 0 && (
-            <span>No check-ins yet</span>
-          )}
+          <span style={{ color: count > 0 ? '#16a34a' : '#6b7280', fontWeight: count > 0 ? 600 : 400 }}>
+            {count > 0 ? `${count} checked in today` : 'No check-ins yet'}
+          </span>
           <span style={{ marginLeft: 'auto', color: '#9ca3af' }}>
-            {scanning ? 'Camera active' : 'Manual mode'}
+            {camReady ? 'Camera active' : 'Manual mode'}
           </span>
         </div>
 
