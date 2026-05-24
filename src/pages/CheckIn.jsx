@@ -623,7 +623,7 @@ const mainCardStyle = {
   background: '#1a1a1a',
   display: 'flex',
   flexDirection: 'column',
-  overflow: 'hidden',
+  overflow: 'visible',
 };
 
 const pinCardStyle = {
@@ -697,11 +697,11 @@ const toggleBtnStyle = {
 };
 
 const viewfinderWrap = {
-  flex: 1,
   position: 'relative',
   background: '#000',
   overflow: 'hidden',
-  minHeight: 320,
+  height: 280,
+  flexShrink: 0,
 };
 
 const videoStyle = {
