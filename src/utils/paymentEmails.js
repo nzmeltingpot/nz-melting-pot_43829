@@ -160,9 +160,9 @@ function buildSingleTicket({ participantName, code, category, performanceType, s
 
     <!-- Fine print -->
     <tr>
-      <td style="padding:8px 22px 10px 22px;text-align:center;">
-        <p style="margin:0;font-size:9px;color:#9ca3af;font-style:italic;line-height:1.5;">
-          Carrying this ticket to the gate is essential — it will be scanned to confirm your entry. Without it, we may not be able to check you in.
+      <td style="padding:10px 22px 12px 22px;text-align:center;background:#fff8f0;border-top:1px solid #e8d9c0;">
+        <p style="margin:0;font-size:11px;color:#7B1E2D;font-style:italic;line-height:1.6;font-weight:600;">
+          ⚠️ Please carry this ticket to the gate — it must be scanned for entry.
         </p>
       </td>
     </tr>
@@ -494,9 +494,9 @@ function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, tot
 
     <!-- Fine print -->
     <tr>
-      <td style="padding:8px 22px 10px 22px;text-align:center;">
-        <p style="margin:0;font-size:9px;color:#9ca3af;font-style:italic;line-height:1.5;">
-          Carrying this ticket to the gate is essential — it will be scanned to confirm your entry. Without it, we may not be able to check you in.
+      <td style="padding:10px 22px 12px 22px;text-align:center;background:#fff8f0;border-top:1px solid #e8d9c0;">
+        <p style="margin:0;font-size:11px;color:#7B1E2D;font-style:italic;line-height:1.6;font-weight:600;">
+          ⚠️ Please carry this ticket to the gate — it must be scanned for entry.
         </p>
       </td>
     </tr>
