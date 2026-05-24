@@ -93,7 +93,8 @@ export default function HonourPassesTab() {
         codes
       });
       await window.ezsite.apis.sendEmail({
-        to: email.trim().toLowerCase(),
+        from: 'NZ Melting Pot <noreply@nzmeltingpot.com>',
+        to: [email.trim().toLowerCase()],
         subject,
         html
       });
