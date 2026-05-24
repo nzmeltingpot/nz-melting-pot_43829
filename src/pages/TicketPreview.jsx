@@ -34,14 +34,13 @@ const sampleBookingData = {
   buyer_name: 'Test Audience'
 };
 
-/* ── Rendered HTML ── */
-const participantHtml = buildTicketsHtml({ formData: sampleFormData, code: TEST_PAX_CODE });
-const audienceHtml    = buildAudienceTicketsHtml({
-  bookingData: sampleBookingData,
-  attendeeNamesArr: ['Test Audience']
-});
-
 export default function TicketPreview() {
+  /* ── Rendered HTML — built inside component so it always uses latest paymentEmails ── */
+  const participantHtml = buildTicketsHtml({ formData: sampleFormData, code: TEST_PAX_CODE });
+  const audienceHtml    = buildAudienceTicketsHtml({
+    bookingData: sampleBookingData,
+    attendeeNamesArr: ['Test Audience']
+  });
   const [dbStatus, setDbStatus] = useState('idle'); // idle | inserting | ready | error
   const [deleteStatus, setDeleteStatus] = useState('');
   const [paxId, setPaxId]   = useState(null);
