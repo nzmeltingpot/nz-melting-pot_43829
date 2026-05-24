@@ -27,7 +27,6 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import jsQR from 'jsqr';
 import usePageMeta from '../hooks/usePageMeta';
 
 /* ── Configuration ───────────────────────────────────────────────────── */
@@ -165,7 +164,7 @@ export default function CheckIn() {
   const audioCtxRef  = useRef(null);
   const lastCodeRef  = useRef('');
   const lastScanRef  = useRef(0);
-  const jsQRRef      = useRef(null);
+  const detectorRef  = useRef(null);   // BarcodeDetector instance
   const manualRef    = useRef(null);
 
   /* Refresh counter */
@@ -198,9 +197,15 @@ export default function CheckIn() {
     refreshCount();
   }, [refreshCount]);
 
-  /* jsQR is imported directly — wire it to the ref once on mount */
+  /* Create BarcodeDetector once on mount — built into Chrome & Safari, no library needed */
   useEffect(() => {
-    jsQRRef.current = jsQR;
+    if ('BarcodeDetector' in window) {
+      try {
+        detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
+      } catch {
+        detectorRef.current = null;
+      }
+    }
   }, []);
 
   /* ── Start camera ───────────────────────────────────────────────── */
@@ -331,37 +336,42 @@ export default function CheckIn() {
     }
   }, [refreshCount]);
 
-  /* ── Scan loop ──────────────────────────────────────────────────── */
+  /* ── Scan loop — uses built-in BarcodeDetector (no library needed) ── */
   useEffect(() => {
     if (!camReady || !scanning) return;
 
-    const tick = () => {
-      const video  = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas || !jsQRRef.current || scanState === 'processing') {
+    // If BarcodeDetector isn't available, show manual entry instead
+    if (!detectorRef.current) {
+      setCamError('QR scanning not supported in this browser — use manual entry below.');
+      setScanning(false);
+      return;
+    }
+
+    let active = true;
+
+    const tick = async () => {
+      if (!active) return;
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || scanState === 'processing') {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
-      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-        rafRef.current = requestAnimationFrame(tick);
-        return;
+      try {
+        const codes = await detectorRef.current.detect(video);
+        if (codes.length > 0 && active) {
+          processCode(codes[0].rawValue, true);
+        }
+      } catch {
+        // detection errors are normal (blurry frame etc.) — just continue
       }
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx2d = canvas.getContext('2d');
-      ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
-      const qr = jsQRRef.current(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: 'dontInvert'
-      });
-      if (qr?.data) {
-        processCode(qr.data, true);
-      }
-      rafRef.current = requestAnimationFrame(tick);
+      if (active) rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+    return () => {
+      active = false;
+      cancelAnimationFrame(rafRef.current);
+    };
   }, [camReady, scanning, scanState, processCode]);
 
   /* ── Manual submit ──────────────────────────────────────────────── */
