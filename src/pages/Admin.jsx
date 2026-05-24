@@ -2206,10 +2206,96 @@ export default function Admin() {
         {activeTab === 'files' &&
         <div>
           <div style={styles.sectionHeader}>
-            <span style={styles.sectionIcon}>🗂️</span> File Manager &amp; Downloads
+            <span style={styles.sectionIcon}>📥</span> Data Downloads
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+            {/* Gate Check-In */}
+            <div style={{ padding: 20, background: '#f0f9f0', border: '1px solid #a7d7a7', borderRadius: 10 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
+                🎟️ Gate Check-In — Staff Access
+              </h3>
+              <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: '#555', lineHeight: 1.6 }}>
+                Print this card and place it at the gate table. Volunteers scan the QR with their phone camera to open the check-in scanner. They enter the PIN once per session.
+              </p>
+
+              {/* Printable card */}
+              <div id="gate-qr-card" style={{
+                display: 'inline-flex', flexDirection: 'column', alignItems: 'center',
+                background: '#fff', border: '2px solid #7B1E2D', borderRadius: 12,
+                padding: '24px 32px', gap: 10, textAlign: 'center',
+                fontFamily: 'Arial, sans-serif'
+              }}>
+                <div style={{ fontSize: '0.75rem', color: '#9ca3af', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                  Musical Talent Showcase 2026
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#7B1E2D' }}>
+                  🎟️ Gate Check-In
+                </div>
+                <img
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=https%3A%2F%2Fwww.nzmeltingpot.com%2Fcheck-in&format=png&margin=6"
+                  alt="Staff check-in QR code"
+                  width="180" height="180"
+                  style={{ display: 'block', border: '1px solid #e5e7eb', borderRadius: 6 }}
+                />
+                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                  Scan with phone camera to open scanner
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 2 }}>
+                  www.nzmeltingpot.com/check-in
+                </div>
+                <div style={{
+                  background: '#7B1E2D', color: '#fff', borderRadius: 8,
+                  padding: '8px 20px', marginTop: 4
+                }}>
+                  <div style={{ fontSize: '0.65rem', letterSpacing: '2px', textTransform: 'uppercase', opacity: 0.8 }}>
+                    Gate PIN
+                  </div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, letterSpacing: '6px', fontFamily: 'monospace' }}>
+                    2026
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.68rem', color: '#9ca3af', maxWidth: 180, lineHeight: 1.5 }}>
+                  Keep this PIN confidential — share only with gate volunteers
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => {
+                    const card = document.getElementById('gate-qr-card');
+                    const win = window.open('', '_blank');
+                    win.document.write(`
+                      <html><head><title>Gate Check-In Card</title>
+                      <style>body{margin:40px;display:flex;justify-content:center;align-items:flex-start;}
+                      @media print{body{margin:0;}}</style></head>
+                      <body>${card.outerHTML}</body></html>`);
+                    win.document.close();
+                    win.focus();
+                    setTimeout(() => win.print(), 400);
+                  }}
+                  style={{
+                    padding: '10px 18px', background: '#7B1E2D', color: '#fff',
+                    border: 'none', borderRadius: 7, fontSize: '0.9rem',
+                    fontWeight: 600, cursor: 'pointer'
+                  }}>
+                  🖨️ Print Card
+                </button>
+                <a
+                  href="https://www.nzmeltingpot.com/check-in"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'inline-block', padding: '10px 18px',
+                    background: '#374151', color: '#fff',
+                    borderRadius: 7, fontSize: '0.9rem', fontWeight: 600,
+                    textDecoration: 'none'
+                  }}>
+                  🔗 Open Check-In Page
+                </a>
+              </div>
+            </div>
 
             {/* Data Exports */}
             <div style={{ padding: 20, background: '#f8f4ef', border: '1px solid #E6DDD3', borderRadius: 10 }}>
