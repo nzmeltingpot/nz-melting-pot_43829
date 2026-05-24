@@ -158,6 +158,15 @@ function buildSingleTicket({ participantName, code, category, performanceType, s
       </td>
     </tr>
 
+    <!-- Fine print -->
+    <tr>
+      <td style="padding:8px 22px 10px 22px;text-align:center;">
+        <p style="margin:0;font-size:9px;color:#9ca3af;font-style:italic;line-height:1.5;">
+          Carrying this ticket to the gate is essential — it will be scanned to confirm your entry. Without it, we may not be able to check you in.
+        </p>
+      </td>
+    </tr>
+
     <!-- Footer note -->
     <tr>
       <td style="background:#1E1915;padding:10px 22px;color:#9ca3af;font-size:10px;text-align:center;letter-spacing:1.5px;">
@@ -480,6 +489,15 @@ function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, tot
             <td style="padding:4px 0;color:#1f2937;">${escapeHtml(buyerName)}</td>
           </tr>
         </table>
+      </td>
+    </tr>
+
+    <!-- Fine print -->
+    <tr>
+      <td style="padding:8px 22px 10px 22px;text-align:center;">
+        <p style="margin:0;font-size:9px;color:#9ca3af;font-style:italic;line-height:1.5;">
+          Carrying this ticket to the gate is essential — it will be scanned to confirm your entry. Without it, we may not be able to check you in.
+        </p>
       </td>
     </tr>
 
