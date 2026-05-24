@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateUnsubscribeLink, generateNewsletterEmail } from '../utils/emailTemplates';
 import { sendBulkEmail } from '../utils/brevoClient';
+import { buildHonourPassesEmail } from '../utils/paymentEmails';
 
 /**
  * Helper: parse a stored "from" string like
@@ -126,6 +127,16 @@ export default function Admin() {
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [pendingRecipients, setPendingRecipients] = useState([]);
   const isSendingRef = useRef(false); // idempotency guard — blocks re-entrant sends
+
+  // Honour Passes tab state
+  const [honourPassName, setHonourPassName] = useState('');
+  const [honourPassEmail, setHonourPassEmail] = useState('');
+  const [honourPassRole, setHonourPassRole] = useState('Judge');
+  const [honourPassCount, setHonourPassCount] = useState(1);
+  const [issuingPass, setIssuingPass] = useState(false);
+  const [issuePassResult, setIssuePassResult] = useState(null);
+  const [recentHonourPasses, setRecentHonourPasses] = useState([]);
+  const [loadingHonourPasses, setLoadingHonourPasses] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [addMemberName, setAddMemberName] = useState('');
@@ -381,6 +392,93 @@ export default function Admin() {
       loadDashboard();
     }
   }, [user, activeTab, loadDashboard]);
+
+  // Load recently issued honour passes
+  const loadHonourPasses = useCallback(async () => {
+    if (!window.ezsite?.apis?.tablePage) return;
+    setLoadingHonourPasses(true);
+    try {
+      const { data } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
+        PageNo: 1, PageSize: 50,
+        OrderByField: 'id', IsAsc: false,
+        Filters: [{ Name: 'category', Op: 'Equal', Value: 'honour_pass' }]
+      });
+      setRecentHonourPasses(data?.List || []);
+    } catch {}
+    setLoadingHonourPasses(false);
+  }, []);
+
+  useEffect(() => {
+    if (user && activeTab === 'passes') loadHonourPasses();
+  }, [user, activeTab, loadHonourPasses]);
+
+  const handleIssueHonourPasses = async () => {
+    if (!honourPassName.trim() || !honourPassEmail.trim()) {
+      setIssuePassResult({ ok: false, msg: 'Name and email are required.' });
+      return;
+    }
+    setIssuingPass(true);
+    setIssuePassResult(null);
+    try {
+      // Find highest existing HON26 code to continue sequentially
+      const { data: existing } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
+        PageNo: 1, PageSize: 200,
+        Filters: [{ Name: 'unique_code', Op: 'StringContains', Value: 'HON26' }]
+      });
+      const nums = (existing?.List || [])
+        .map((r) => r.unique_code)
+        .filter((c) => /^HON26\d+$/.test(c))
+        .map((c) => parseInt(c.replace('HON26', ''), 10))
+        .filter((n) => !isNaN(n));
+      const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+      const codes = Array.from({ length: honourPassCount }, (_, i) =>
+        `HON26${String(nextNum + i).padStart(3, '0')}`
+      );
+
+      // Save each pass to the submissions table (so check-in works automatically)
+      for (const code of codes) {
+        await window.ezsite.apis.tableCreate(SUBMISSIONS_TABLE_ID, {
+          unique_code: code,
+          participant_name: honourPassName.trim(),
+          category: 'honour_pass',
+          performance_type: honourPassRole,
+          song_title: 'N/A',
+          email: honourPassEmail.trim().toLowerCase(),
+          phone: 'N/A',
+          num_performers: 1,
+          total_fee: 0,
+          status: 'paid',
+          submission_timestamp: new Date().toISOString(),
+          year: 2026
+        });
+      }
+
+      // Build and send email with all passes
+      const { subject, html } = buildHonourPassesEmail({
+        recipientName: honourPassName.trim(),
+        role: honourPassRole,
+        codes
+      });
+      await window.ezsite.apis.sendEmail({
+        to: honourPassEmail.trim().toLowerCase(),
+        subject,
+        html
+      });
+
+      setIssuePassResult({
+        ok: true,
+        msg: `✅ ${honourPassCount} Honour Pass${honourPassCount > 1 ? 'es' : ''} issued and emailed to ${honourPassEmail.trim()}. Code${codes.length > 1 ? 's' : ''}: ${codes.join(', ')}`
+      });
+      setHonourPassName('');
+      setHonourPassEmail('');
+      setHonourPassRole('Judge');
+      setHonourPassCount(1);
+      loadHonourPasses();
+    } catch (err) {
+      setIssuePassResult({ ok: false, msg: '❌ Failed: ' + (err.message || 'Unknown error') });
+    }
+    setIssuingPass(false);
+  };
 
   const handleUnsubscribe = async (member) => {
     if (!confirm(`Unsubscribe ${member.email}?`)) return;
@@ -1212,6 +1310,12 @@ export default function Admin() {
             style={activeTab === 'apikeys' ? styles.tabActive : styles.tab}>
 
             🔑 API Keys
+          </button>
+          <button
+            onClick={() => setActiveTab('passes')}
+            style={activeTab === 'passes' ? styles.tabActive : styles.tab}>
+
+            🎟️ Passes
           </button>
           <button
             onClick={() => setActiveTab('files')}
@@ -2200,6 +2304,151 @@ export default function Admin() {
               </div>
           }
           </div>
+        }
+
+        {/* Passes Tab */}
+        {activeTab === 'passes' &&
+        <div>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionIcon}>🎟️</span> Issue Honour Passes
+          </div>
+          <p style={{ color: '#555', fontSize: '0.88rem', marginBottom: 20, lineHeight: 1.6 }}>
+            Issue complimentary gate passes for judges, crew and guests. Each pass gets a unique scannable QR code
+            and is emailed instantly. Passes work at the gate check-in scanner automatically.
+          </p>
+
+          {/* Issue form */}
+          <div style={{ background: '#F2FAF7', border: '1.5px solid #a3d9c8', borderRadius: 12, padding: '24px 24px 20px' }}>
+            <h3 style={{ margin: '0 0 18px', fontSize: '1rem', fontWeight: 700, color: '#0B5E4F' }}>
+              ⭐ New Honour Pass
+            </h3>
+
+            {/* Name + Count row */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+              <div style={{ flex: 2 }}>
+                <label style={styles.label}>Full Name</label>
+                <input
+                  type="text"
+                  value={honourPassName}
+                  onChange={(e) => setHonourPassName(e.target.value)}
+                  placeholder="e.g. Sarah Mitchell"
+                  style={styles.input} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={styles.label}>No. of Passes</label>
+                <select
+                  value={honourPassCount}
+                  onChange={(e) => setHonourPassCount(Number(e.target.value))}
+                  style={{ ...styles.input, cursor: 'pointer' }}>
+                  {Array.from({ length: 20 }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>{i + 1}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={styles.label}>Email Address</label>
+              <input
+                type="email"
+                value={honourPassEmail}
+                onChange={(e) => setHonourPassEmail(e.target.value)}
+                placeholder="e.g. sarah@example.com"
+                style={styles.input} />
+              <p style={{ margin: '5px 0 0 2px', fontSize: '0.78rem', color: '#6b7280', fontStyle: 'italic' }}>
+                All passes in this batch are sent to this address in one email.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={styles.label}>Role</label>
+              <select
+                value={honourPassRole}
+                onChange={(e) => setHonourPassRole(e.target.value)}
+                style={{ ...styles.input, cursor: 'pointer' }}>
+                <option>Judge</option>
+                <option>Caterer</option>
+                <option>Sound Crew</option>
+                <option>Committee Member</option>
+                <option>Guest Artist</option>
+                <option>Other</option>
+              </select>
+            </div>
+
+            {issuePassResult &&
+            <div style={{
+              padding: '12px 16px', marginBottom: 16, borderRadius: 8,
+              background: issuePassResult.ok ? '#dcfce7' : '#fef2f2',
+              border: `1px solid ${issuePassResult.ok ? '#86efac' : '#fecaca'}`,
+              color: issuePassResult.ok ? '#166534' : '#991b1b',
+              fontSize: '0.88rem', lineHeight: 1.6
+            }}>
+              {issuePassResult.msg}
+            </div>
+            }
+
+            <button
+              onClick={handleIssueHonourPasses}
+              disabled={issuingPass || !honourPassName.trim() || !honourPassEmail.trim()}
+              style={{
+                padding: '11px 24px',
+                background: issuingPass || !honourPassName.trim() || !honourPassEmail.trim()
+                  ? '#9ca3af' : '#0B5E4F',
+                color: '#fff', border: 'none', borderRadius: 8,
+                fontSize: '0.95rem', fontWeight: 700,
+                cursor: issuingPass || !honourPassName.trim() || !honourPassEmail.trim() ? 'not-allowed' : 'pointer'
+              }}>
+              {issuingPass ? 'Issuing…' : `Issue Pass${honourPassCount > 1 ? 'es' : ''} & Send Email →`}
+            </button>
+          </div>
+
+          {/* Recently issued passes */}
+          <div style={{ marginTop: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1E1915' }}>
+                Recently Issued Passes
+              </h3>
+              <button onClick={loadHonourPasses} style={styles.dashLink}>Refresh ↺</button>
+            </div>
+            {loadingHonourPasses ?
+            <p style={{ color: '#666', fontSize: '0.85rem' }}>Loading…</p> :
+            recentHonourPasses.length === 0 ?
+            <p style={{ color: '#999', fontSize: '0.85rem', fontStyle: 'italic' }}>No honour passes issued yet.</p> :
+            <div style={{ overflowX: 'auto' }}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Code</th>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Role</th>
+                    <th style={styles.th}>Email</th>
+                    <th style={styles.th}>Issued</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentHonourPasses.map((p) =>
+                  <tr key={p.id || p.ID}>
+                    <td style={styles.td}>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#0B5E4F', fontWeight: 700 }}>
+                        {p.unique_code}
+                      </span>
+                    </td>
+                    <td style={styles.td}>{p.participant_name || '—'}</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, background: '#E8F5F0', color: '#0B5E4F' }}>
+                        {p.performance_type || '—'}
+                      </span>
+                    </td>
+                    <td style={styles.td}>{p.email || '—'}</td>
+                    <td style={styles.td}>{formatDate(p.submission_timestamp || p.CreatedAt)}</td>
+                  </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            }
+          </div>
+        </div>
         }
 
         {/* Files Tab */}

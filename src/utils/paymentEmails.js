@@ -628,6 +628,164 @@ export function buildBuyerConfirmationEmail({ bookingData, attendeeNamesArr }) {
   return { subject, html, text };
 }
 
+/* ============================================================================
+   Honour Pass email builders (Admin → Passes tab)
+   ========================================================================== */
+
+/**
+ * Build a single honour pass as inline HTML — emerald & gold theme.
+ * Complimentary entry for judges, crew, guests, etc.
+ */
+function buildSingleHonourPass({ name, code, role, passNumber, totalPasses }) {
+  return `
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;margin:18px auto;border-collapse:separate;background:#F2FAF7;border:2px dashed #c9a227;border-radius:14px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+    <tr>
+      <td style="background:linear-gradient(135deg,#0B5E4F 0%,#0E7A64 100%);padding:14px 22px;color:#fff;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+          <tr>
+            <td style="vertical-align:middle;width:46px;">
+              <img src="${LOGO_URL}" alt="NZ Melting Pot" width="40" height="40" style="display:block;border-radius:50%;border:2px solid #c9a227;background:#fff;" />
+            </td>
+            <td style="vertical-align:middle;padding-left:10px;">
+              <div style="font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:#c9a227;">NZ Melting Pot</div>
+              <div style="font-size:16px;font-weight:bold;font-family:'Georgia',serif;">Musical Talent Showcase 2026</div>
+            </td>
+            <td style="vertical-align:middle;text-align:right;">
+              <span style="background:#c9a227;color:#1E1915;font-size:10px;font-weight:bold;letter-spacing:1.5px;padding:4px 8px;border-radius:4px;">
+                HONOUR PASS${totalPasses > 1 ? ` ${passNumber}/${totalPasses}` : ''}
+              </span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#c9a227;color:#1E1915;text-align:center;padding:8px 0;font-weight:bold;letter-spacing:5px;font-size:12px;">
+        ⭐ COMPLIMENTARY ENTRY ⭐
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:22px 22px 14px 22px;text-align:center;">
+        <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;">Guest</div>
+        <div style="font-size:24px;font-weight:bold;color:#1E1915;font-family:'Georgia',serif;letter-spacing:0.5px;">${escapeHtml(name)}</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:0 22px;">
+        <div style="border-top:2px dashed #d4c4a8;height:1px;line-height:1px;">&nbsp;</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:14px 22px;background:#FBF5ED;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+          <tr>
+            <td style="vertical-align:middle;width:121px;text-align:center;">
+              ${generateQRCode(code)}
+              <div style="font-size:7px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:4px;">${escapeHtml(code)}</div>
+            </td>
+            <td style="vertical-align:middle;padding-left:16px;text-align:left;">
+              <div style="font-size:10px;color:#0B5E4F;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;font-weight:600;">Role</div>
+              <div style="font-size:20px;font-weight:bold;color:#1E1915;letter-spacing:2px;font-family:'Courier New',monospace;line-height:1.2;">${escapeHtml(role)}</div>
+              <div style="font-size:11px;color:#6b7280;margin-top:8px;font-style:italic;">Complimentary · No charge</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:18px 22px 14px 22px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;font-size:13px;color:#374151;">
+          <tr>
+            <td style="padding:4px 0;width:90px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;font-size:10px;">Date</td>
+            <td style="padding:4px 0;color:#1f2937;font-weight:600;">${EVENT_DATE}</td>
+          </tr>
+          <tr>
+            <td style="padding:4px 0;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;font-size:10px;">Venue</td>
+            <td style="padding:4px 0;color:#1f2937;">${EVENT_VENUE}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:10px 22px 12px 22px;text-align:center;background:#E8F5F0;border-top:1px solid #b2d8ce;">
+        <p style="margin:0;font-size:11px;color:#0B5E4F;font-style:italic;line-height:1.6;font-weight:600;">
+          ⚠️ Please carry this pass to the gate — it must be scanned for entry.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#0B5E4F;padding:10px 22px;color:#c9a227;font-size:10px;text-align:center;letter-spacing:1.5px;">
+        COMPLIMENTARY PASS · NOT FOR RESALE
+      </td>
+    </tr>
+  </table>
+  `;
+}
+
+/**
+ * Build the honour passes email sent to the recipient.
+ * Returns { subject, html }.
+ */
+export function buildHonourPassesEmail({ recipientName, role, codes }) {
+  const count = codes.length;
+  const subject = `Your Honour Pass — Musical Talent Showcase 2026`;
+  const passesHtml = codes.map((code, i) =>
+    buildSingleHonourPass({ name: recipientName, code, role, passNumber: i + 1, totalPasses: count })
+  ).join('\n');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px; color: #2d3748; background:#fafaf7;">
+
+      <p style="font-size:15px;">Dear ${escapeHtml(recipientName)},</p>
+
+      <p style="background:linear-gradient(135deg,#E8F5F0,#D4EDE6);border-left:4px solid #0B5E4F;padding:14px 18px;border-radius:6px;font-weight:600;color:#0B5E4F;font-size:15px;margin:18px 0;">
+        ⭐ Your complimentary ${count === 1 ? 'pass has' : `${count} passes have`} been issued for the Musical Talent Showcase 2026!
+      </p>
+
+      <p style="font-size:14px;line-height:1.7;color:#374151;">
+        On behalf of the NZ Melting Pot committee, we extend our warmest thanks for your valued contribution
+        to this event. It is an honour to have you with us, and we look forward to welcoming you on the day.
+      </p>
+
+      <p style="font-size:14px;line-height:1.7;color:#374151;">
+        Your ${count === 1 ? 'complimentary pass is' : `${count} complimentary passes are`} enclosed below.
+        Please ${count === 1 ? 'present it' : 'distribute and present the relevant pass'} at the gate —
+        each pass has a unique QR code that will be scanned for entry.
+      </p>
+
+      <h3 style="font-family:Georgia,serif;color:#0B5E4F;text-align:center;margin:32px 0 6px 0;font-size:22px;">
+        🎟️ Your ${count === 1 ? 'Honour Pass' : `${count} Honour Passes`}
+      </h3>
+      <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 8px 0;">
+        ${count === 1 ? 'Please carry this pass to the gate on show day.' : `One pass per person. Please distribute accordingly.`}
+      </p>
+      ${passesHtml}
+
+      <div style="background:linear-gradient(135deg,#F2FAF7,#E8F5F0);border:1.5px solid #a3d9c8;border-radius:12px;padding:20px 24px;margin:28px 0;text-align:center;">
+        <p style="margin:0 0 6px 0;font-weight:700;color:#0B5E4F;font-size:15px;font-family:Georgia,serif;">📅 Event Details</p>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;">
+          <strong>${EVENT_DATE}</strong><br/>
+          ${EVENT_VENUE}
+        </p>
+      </div>
+
+      <p style="font-size:14px;margin-top:28px;line-height:1.6;">
+        Warm regards,<br/>
+        <strong>The NZ Melting Pot Committee</strong>
+      </p>
+
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 14px 0;" />
+      <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;">
+        Musical Talent Showcase 2026 · NZ Melting Pot<br/>
+        ${EVENT_DATE} · ${EVENT_VENUE}<br/>
+        <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
+      </p>
+    </div>
+  `;
+
+  return { subject, html };
+}
+
 /**
  * Build the admin notification email when audience tickets are sold.
  */
