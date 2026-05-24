@@ -27,6 +27,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import jsQR from 'jsqr';
 import usePageMeta from '../hooks/usePageMeta';
 
 /* ── Configuration ───────────────────────────────────────────────────── */
@@ -37,7 +38,6 @@ const LOG_KEY         = 'tsc26_checkins';     // localStorage check-in log
 const SCAN_COOLDOWN   = 2000;                 // ms between two scans of the same code
 const SUCCESS_HOLD    = 2200;                 // ms to show success before next scan
 const FAIL_HOLD       = 3000;                 // ms to show fail before next scan
-const JSQR_CDN        = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 function capitalise(s) {
@@ -198,16 +198,10 @@ export default function CheckIn() {
     refreshCount();
   }, [refreshCount]);
 
-  /* ── Load jsQR from CDN ─────────────────────────────────────────── */
+  /* jsQR is imported directly — wire it to the ref once on mount */
   useEffect(() => {
-    if (!pinOk) return;
-    if (window.jsQR) { jsQRRef.current = window.jsQR; return; }
-    const script = document.createElement('script');
-    script.src = JSQR_CDN;
-    script.onload = () => { jsQRRef.current = window.jsQR; };
-    script.onerror = () => setCamError('Could not load QR library. Use manual entry.');
-    document.head.appendChild(script);
-  }, [pinOk]);
+    jsQRRef.current = jsQR;
+  }, []);
 
   /* ── Start camera ───────────────────────────────────────────────── */
   const startCamera = useCallback(async () => {
