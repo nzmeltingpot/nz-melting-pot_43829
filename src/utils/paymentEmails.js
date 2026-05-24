@@ -47,66 +47,18 @@ function formatNZDateTime(dateStr) {
 }
 
 /**
- * Generate a fake-but-realistic-looking QR code as an inline HTML table grid.
- * Purely decorative — not scannable. Deterministically derived from codeStr so each
- * ticket gets a consistent (but visually unique) pattern.
- * Returns a table element that can be embedded inside a <td>.
+ * Generate a real, scannable QR code as an inline <img> tag.
+ * Uses the free qrserver.com API — no library or API key required.
+ * The QR encodes the registration/booking code (e.g. "TSC26001").
+ * Works in all major email clients (Gmail, Outlook, Apple Mail).
+ *
+ * @param {string} codeStr  - The text to encode (registration or booking code)
+ * @returns {string}        - HTML <img> element ready to embed in email
  */
-function generateFakeQRCode(codeStr, darkColor) {
-  const barColor = darkColor || '#1a1a1a';
-  const size = 21; // 21×21 grid (matches standard QR visual size)
-  const cellPx = 5; // px per module
-
-  // Derive a deterministic seed from codeStr
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < codeStr.length; i++) {
-    hash ^= codeStr.charCodeAt(i);
-    hash = hash * 0x01000193 >>> 0;
-  }
-
-  // Build the grid
-  const grid = [];
-  for (let r = 0; r < size; r++) {
-    grid[r] = [];
-    for (let c = 0; c < size; c++) {
-      // Top-left finder pattern (rows 0-6, cols 0-6)
-      if (r <= 6 && c <= 6) {
-        if (r === 0 || r === 6 || c === 0 || c === 6) grid[r][c] = 1;else
-        if (r === 1 || r === 5 || c === 1 || c === 5) grid[r][c] = 0;else
-        grid[r][c] = 1;
-      }
-      // Top-right finder pattern (rows 0-6, cols 14-20)
-      else if (r <= 6 && c >= 14) {
-        const lc = c - 14;
-        if (r === 0 || r === 6 || lc === 0 || lc === 6) grid[r][c] = 1;else
-        if (r === 1 || r === 5 || lc === 1 || lc === 5) grid[r][c] = 0;else
-        grid[r][c] = 1;
-      }
-      // Bottom-left finder pattern (rows 14-20, cols 0-6)
-      else if (r >= 14 && c <= 6) {
-        const lr = r - 14;
-        if (lr === 0 || lr === 6 || c === 0 || c === 6) grid[r][c] = 1;else
-        if (lr === 1 || lr === 5 || c === 1 || c === 5) grid[r][c] = 0;else
-        grid[r][c] = 1;
-      }
-      // Data area — deterministic pseudo-random from hash + position
-      else {
-        const seed = ((hash ^ r * 0x9e3779b9 ^ c * 0x6c62272e) >>> 0) * 2654435761 >>> 0;
-        grid[r][c] = seed % 2;
-      }
-    }
-  }
-
-  const totalPx = size * cellPx; // 105px
-
-  const rows = grid.map((row) => {
-    const cells = row.map((dark) =>
-    `<td style="padding:0;width:${cellPx}px;height:${cellPx}px;background:${dark ? barColor : '#fff'};font-size:0;line-height:0;"> </td>`
-    ).join('');
-    return `<tr style="height:${cellPx}px;">${cells}</tr>`;
-  }).join('');
-
-  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;border-collapse:collapse;width:${totalPx}px;height:${totalPx}px;border:2px solid ${barColor};padding:4px;background:#fff;">${rows}</table>`;
+function generateQRCode(codeStr) {
+  const encoded = encodeURIComponent(codeStr);
+  const url = `https://api.qrserver.com/v1/create-qr-code/?size=105x105&data=${encoded}&format=png&margin=4`;
+  return `<img src="${url}" alt="QR code for ${escapeHtml(codeStr)}" width="105" height="105" style="display:block;border:2px solid #e5e7eb;border-radius:6px;background:#fff;" />`;
 }
 
 /**
@@ -162,7 +114,7 @@ function buildSingleTicket({ participantName, code, category, performanceType, s
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
           <tr>
             <td style="vertical-align:middle;width:121px;text-align:center;">
-              ${generateFakeQRCode(code, '#7B1E2D')}
+              ${generateQRCode(code)}
               <div style="font-size:7px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:4px;">${escapeHtml(code)}</div>
             </td>
             <td style="vertical-align:middle;padding-left:16px;text-align:left;">
@@ -491,7 +443,7 @@ function buildSingleAudienceTicket({ attendeeName, bookingRef, ticketNumber, tot
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
           <tr>
             <td style="vertical-align:middle;width:121px;text-align:center;">
-              ${generateFakeQRCode(bookingRef, '#1E1915')}
+              ${generateQRCode(bookingRef)}
               <div style="font-size:7px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:4px;">${escapeHtml(bookingRef)}</div>
             </td>
             <td style="vertical-align:middle;padding-left:16px;text-align:left;">
