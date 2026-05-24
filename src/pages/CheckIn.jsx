@@ -1,63 +1,60 @@
 /**
- * /check-in — Gate check-in page for the Musical Talent Showcase 2026.
+ * /check-in — Hands-free gate check-in for the Musical Talent Showcase 2026.
  *
  * USAGE AT THE GATE:
- *   Volunteers open https://www.nzmeltingpot.com/check-in on their phone.
- *   They enter the event PIN once (stored in sessionStorage for the session).
- *   Then they can either:
- *     A) Scan a participant's QR code with the phone camera — the QR encodes
- *        the check-in URL (https://nzmeltingpot.com/check-in?code=TSC26001),
- *        so scanning opens the page automatically with the code pre-filled.
- *     B) Type the registration code manually in the search box.
+ *   Open https://www.nzmeltingpot.com/check-in on your phone.
+ *   Enter the gate PIN once (stored for the browser session).
+ *   Point the camera at a participant's ticket QR code.
  *
- * CHECK-IN STATE:
- *   Check-ins are stored in localStorage (device-side) so the page works even
- *   if the Ezsite API is slow. The page also attempts a tableUpdate to write
- *   checked_in:true to the live DB — but UI never blocks on that.
+ *   ✅ Valid, first scan  → green flash + pleasant DING  → auto-resets in 2s
+ *   ⚠️ Already checked in → amber flash + low BUZZ      → auto-resets in 3s
+ *   ❌ Code not found     → red flash + error BUZZ       → auto-resets in 3s
  *
- * ACCESS CONTROL:
- *   A simple session PIN (default: 2026). Change GATE_PIN below for each event.
- *   Volunteers are told the PIN on event day.
+ *   Manual code entry is available as a fallback (tap the keyboard icon).
+ *
+ * AUDIO:
+ *   Uses Web Audio API — no audio files needed, works offline.
+ *   The PIN entry button press unlocks the AudioContext (required by browsers).
+ *
+ * QR FORMAT:
+ *   QR codes on tickets encode the URL:
+ *     https://www.nzmeltingpot.com/check-in?code=TSC26001
+ *   The scanner also accepts plain code strings ("TSC26001") as fallback.
+ *
+ * CHECK-IN STORAGE:
+ *   Writes to localStorage immediately (works offline, instant feedback).
+ *   Also attempts tableUpdate to the live DB in the background.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import usePageMeta from '../hooks/usePageMeta';
 
 /* ── Configuration ───────────────────────────────────────────────────── */
-const GATE_PIN = '2026';                  // Change this each event
-const TABLE_ID = 78687;                   // Ezsite submissions table
-const PIN_SESSION_KEY = 'checkin_auth';   // sessionStorage key for PIN
-const CHECKINS_LOCAL_KEY = 'tsc26_checkins'; // localStorage key for check-in log
+const GATE_PIN        = '2026';               // Change each event
+const TABLE_ID        = 78687;                // Ezsite submissions table
+const PIN_KEY         = 'checkin_auth';       // sessionStorage
+const LOG_KEY         = 'tsc26_checkins';     // localStorage check-in log
+const SCAN_COOLDOWN   = 2000;                 // ms between two scans of the same code
+const SUCCESS_HOLD    = 2200;                 // ms to show success before next scan
+const FAIL_HOLD       = 3000;                 // ms to show fail before next scan
+const JSQR_CDN        = 'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 function capitalise(s) {
-  if (!s) return '';
-  return String(s).charAt(0).toUpperCase() + String(s).slice(1);
+  return s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '';
 }
 
-/** Load check-in log from localStorage. Returns a Map of code → {name, at} */
-function loadLocalCheckins() {
-  try {
-    const raw = localStorage.getItem(CHECKINS_LOCAL_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '{}'); }
+  catch { return {}; }
 }
-
-/** Save one check-in to localStorage. */
-function saveLocalCheckin(code, name) {
+function saveLog(code, name) {
   try {
-    const log = loadLocalCheckins();
+    const log = loadLog();
     log[code] = { name, at: new Date().toISOString() };
-    localStorage.setItem(CHECKINS_LOCAL_KEY, JSON.stringify(log));
-  } catch {
-    // localStorage may be full or blocked — silent fail
-  }
+    localStorage.setItem(LOG_KEY, JSON.stringify(log));
+  } catch {}
 }
-
-/** Format a NZ-friendly time string from an ISO timestamp */
 function fmtTime(iso) {
   if (!iso) return '';
   try {
@@ -65,9 +62,70 @@ function fmtTime(iso) {
       hour: '2-digit', minute: '2-digit', hour12: true,
       timeZone: 'Pacific/Auckland'
     });
-  } catch {
-    return iso.slice(11, 16);
+  } catch { return iso.slice(11, 16); }
+}
+
+/** Extract code from a raw QR string — handles URL or plain code. */
+function extractCode(raw) {
+  const s = (raw || '').trim();
+  try {
+    const url = new URL(s);
+    const c = url.searchParams.get('code');
+    if (c) return c.trim().toUpperCase();
+  } catch {}
+  return s.toUpperCase();
+}
+
+/* ── Audio ───────────────────────────────────────────────────────────── */
+/** Create or resume a shared AudioContext, seeded by a user gesture. */
+function getAudioCtx(ctxRef) {
+  if (!ctxRef.current) {
+    ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
   }
+  if (ctxRef.current.state === 'suspended') {
+    ctxRef.current.resume();
+  }
+  return ctxRef.current;
+}
+
+/** Two ascending tones — pleasant checkout-style success beep. */
+function playSuccess(ctxRef) {
+  try {
+    const ctx = getAudioCtx(ctxRef);
+    const t = ctx.currentTime;
+    [[880, t, t + 0.14], [1318, t + 0.18, t + 0.36]].forEach(([freq, start, end]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.28, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, end);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(end + 0.02);
+    });
+  } catch (e) { console.warn('Audio error', e); }
+}
+
+/** Two descending tones — low buzz for denied / duplicate. */
+function playFail(ctxRef) {
+  try {
+    const ctx = getAudioCtx(ctxRef);
+    const t = ctx.currentTime;
+    [[330, t, t + 0.22], [220, t + 0.26, t + 0.52]].forEach(([freq, start, end]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.35, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, end);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(end + 0.02);
+    });
+  } catch (e) { console.warn('Audio error', e); }
 }
 
 /* ── Main Component ──────────────────────────────────────────────────── */
@@ -78,183 +136,272 @@ export default function CheckIn() {
     path: '/check-in'
   });
 
-  // PIN gate
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [pinOk, setPinOk] = useState(false);
+  /* PIN gate */
+  const [pinInput, setPinInput]   = useState('');
+  const [pinError, setPinError]   = useState('');
+  const [pinOk, setPinOk]         = useState(false);
 
-  // Search / result
-  const [query, setQuery] = useState('');
-  const [looking, setLooking] = useState(false);
-  const [result, setResult] = useState(null);  // { record, alreadyIn, checkedInAt }
-  const [searchErr, setSearchErr] = useState('');
+  /* Camera scanning */
+  const [camReady, setCamReady]   = useState(false);
+  const [camError, setCamError]   = useState('');
+  const [scanning, setScanning]   = useState(true);    // camera mode vs manual mode
 
-  // Check-in action
-  const [checkingIn, setCheckingIn] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
+  /* Result state: 'idle' | 'processing' | 'ok' | 'duplicate' | 'notfound' | 'error' */
+  const [scanState, setScanState] = useState('idle');
+  const [scanInfo, setScanInfo]   = useState(null);   // { code, name, category, song, time }
 
-  const inputRef = useRef(null);
-  const ranRef = useRef(false);
+  /* Manual entry */
+  const [manualCode, setManualCode] = useState('');
+  const [manualBusy, setManualBusy] = useState('');
 
-  /* On mount: check session PIN and URL ?code= param */
-  useEffect(() => {
-    if (ranRef.current) return;
-    ranRef.current = true;
+  /* Counter */
+  const [count, setCount]         = useState(0);
 
-    // Restore PIN from session
-    const stored = sessionStorage.getItem(PIN_SESSION_KEY);
-    if (stored === GATE_PIN) {
-      setPinOk(true);
-    }
+  /* Refs */
+  const videoRef     = useRef(null);
+  const canvasRef    = useRef(null);
+  const streamRef    = useRef(null);
+  const rafRef       = useRef(null);
+  const audioCtxRef  = useRef(null);
+  const lastCodeRef  = useRef('');
+  const lastScanRef  = useRef(0);
+  const jsQRRef      = useRef(null);
+  const manualRef    = useRef(null);
 
-    // Pre-fill code from URL params (set when user scans QR with phone camera)
-    const params = new URLSearchParams(window.location.search);
-    const urlCode = (params.get('code') || '').trim().toUpperCase();
-    if (urlCode) {
-      setQuery(urlCode);
-    }
+  /* Refresh counter */
+  const refreshCount = useCallback(() => {
+    setCount(Object.keys(loadLog()).length);
   }, []);
-
-  /* Auto-lookup when code arrives from URL (after PIN is verified) */
-  useEffect(() => {
-    if (pinOk && query && !result && !looking) {
-      const params = new URLSearchParams(window.location.search);
-      const urlCode = (params.get('code') || '').trim().toUpperCase();
-      if (urlCode && urlCode === query) {
-        doLookup(urlCode);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinOk]);
-
-  /* Focus the input when PIN gate passes */
-  useEffect(() => {
-    if (pinOk) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [pinOk]);
 
   /* ── PIN submit ─────────────────────────────────────────────────── */
   function handlePinSubmit(e) {
     e.preventDefault();
     if (pinInput.trim() === GATE_PIN) {
-      sessionStorage.setItem(PIN_SESSION_KEY, GATE_PIN);
+      // Create AudioContext NOW (user gesture) to unlock audio on iOS/Android
+      try {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      } catch {}
+      sessionStorage.setItem(PIN_KEY, GATE_PIN);
       setPinOk(true);
       setPinError('');
     } else {
-      setPinError('Incorrect PIN. Please check with the event coordinator.');
+      setPinError('Incorrect PIN. Check with the event coordinator.');
       setPinInput('');
     }
   }
 
-  /* ── DB lookup ──────────────────────────────────────────────────── */
-  const doLookup = useCallback(async (code) => {
-    const trimmed = (code || query).trim().toUpperCase();
-    if (!trimmed) return;
+  /* Restore session PIN on mount */
+  useEffect(() => {
+    if (sessionStorage.getItem(PIN_KEY) === GATE_PIN) {
+      setPinOk(true);
+    }
+    refreshCount();
+  }, [refreshCount]);
 
-    setLooking(true);
-    setResult(null);
-    setCheckedIn(false);
-    setSearchErr('');
+  /* ── Load jsQR from CDN ─────────────────────────────────────────── */
+  useEffect(() => {
+    if (!pinOk) return;
+    if (window.jsQR) { jsQRRef.current = window.jsQR; return; }
+    const script = document.createElement('script');
+    script.src = JSQR_CDN;
+    script.onload = () => { jsQRRef.current = window.jsQR; };
+    script.onerror = () => setCamError('Could not load QR library. Use manual entry.');
+    document.head.appendChild(script);
+  }, [pinOk]);
+
+  /* ── Start camera ───────────────────────────────────────────────── */
+  const startCamera = useCallback(async () => {
+    setCamError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCamError('Camera not available in this browser. Use manual entry below.');
+      setScanning(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCamReady(true);
+      }
+    } catch (err) {
+      setCamError(
+        err.name === 'NotAllowedError'
+          ? 'Camera permission denied. Please allow camera access and reload.'
+          : 'Could not access camera. Use manual entry below.'
+      );
+      setScanning(false);
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCamReady(false);
+  }, []);
+
+  /* Start camera when PIN passes and scanning mode is on */
+  useEffect(() => {
+    if (pinOk && scanning) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [pinOk, scanning, startCamera, stopCamera]);
+
+  /* Focus manual input when switching to manual mode */
+  useEffect(() => {
+    if (!scanning && pinOk) {
+      setTimeout(() => manualRef.current?.focus(), 100);
+    }
+  }, [scanning, pinOk]);
+
+  /* ── Core: process a scanned / entered code ─────────────────────── */
+  const processCode = useCallback(async (rawCode, fromCamera = false) => {
+    const code = extractCode(rawCode);
+    if (!code || code.length < 3) return;
+
+    // Cooldown — ignore the same code if just scanned
+    const now = Date.now();
+    if (fromCamera && code === lastCodeRef.current && now - lastScanRef.current < SCAN_COOLDOWN) return;
+    lastCodeRef.current = code;
+    lastScanRef.current = now;
+
+    setScanState('processing');
+    setScanInfo(null);
 
     try {
       const { data, error } = await window.ezsite.apis.tablePage(TABLE_ID, {
-        PageNo: 1,
-        PageSize: 5,
-        Filters: [{ Name: 'unique_code', Op: 'Equal', Value: trimmed }]
+        PageNo: 1, PageSize: 5,
+        Filters: [{ Name: 'unique_code', Op: 'Equal', Value: code }]
       });
 
-      if (error) {
-        setSearchErr('Database error — please try again or check your connection.');
-        setLooking(false);
+      if (error || !data?.List?.length) {
+        setScanState('notfound');
+        setScanInfo({ code });
+        playFail(audioCtxRef);
+        setTimeout(() => { setScanState('idle'); setScanInfo(null); lastCodeRef.current = ''; }, FAIL_HOLD);
         return;
       }
 
-      const list = data?.List || [];
-      if (list.length === 0) {
-        setSearchErr(`No registration found for code "${trimmed}". Please check the code and try again.`);
-        setLooking(false);
+      const rec = data.List[0];
+      const name = rec.participant_name || code;
+
+      // Check if already in
+      const log = loadLog();
+      const localEntry = log[code];
+      const dbIn = rec.checked_in === true || rec.checked_in === 'true' || rec.checked_in === 1;
+
+      if (localEntry || dbIn) {
+        const at = localEntry?.at || rec.checked_in_at || null;
+        setScanState('duplicate');
+        setScanInfo({ code, name, category: rec.category, song: rec.song_title, time: at });
+        playFail(audioCtxRef);
+        setTimeout(() => { setScanState('idle'); setScanInfo(null); lastCodeRef.current = ''; }, FAIL_HOLD);
         return;
       }
 
-      const record = list[0];
+      // Mark as checked in
+      saveLog(code, name);
+      try {
+        await window.ezsite.apis.tableUpdate(TABLE_ID, {
+          ID: rec.ID || rec.id,
+          checked_in: true,
+          checked_in_at: new Date().toISOString()
+        });
+      } catch {}
 
-      // Check local check-in log first (fast, works offline)
-      const localLog = loadLocalCheckins();
-      const localEntry = localLog[trimmed];
+      setScanState('ok');
+      setScanInfo({
+        code,
+        name,
+        others: [rec.participant_2_name, rec.participant_3_name, rec.participant_4_name].filter(Boolean),
+        category: rec.category,
+        perf: rec.performance_type,
+        song: rec.song_title
+      });
+      playSuccess(audioCtxRef);
+      refreshCount();
+      setTimeout(() => { setScanState('idle'); setScanInfo(null); lastCodeRef.current = ''; }, SUCCESS_HOLD);
 
-      // Also check DB field if present
-      const dbCheckedIn = record.checked_in === true || record.checked_in === 'true' || record.checked_in === 1;
-      const alreadyIn = !!(localEntry || dbCheckedIn);
-      const checkedInAt = localEntry?.at || record.checked_in_at || null;
-
-      setResult({ record, alreadyIn, checkedInAt });
     } catch (err) {
-      setSearchErr('Unexpected error: ' + (err.message || 'Please try again.'));
+      setScanState('error');
+      setScanInfo({ code, msg: err.message });
+      playFail(audioCtxRef);
+      setTimeout(() => { setScanState('idle'); setScanInfo(null); lastCodeRef.current = ''; }, FAIL_HOLD);
     }
+  }, [refreshCount]);
 
-    setLooking(false);
-  }, [query]);
+  /* ── Scan loop ──────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!camReady || !scanning) return;
 
-  /* ── Search submit ──────────────────────────────────────────────── */
-  function handleSearch(e) {
+    const tick = () => {
+      const video  = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas || !jsQRRef.current || scanState === 'processing') {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx2d = canvas.getContext('2d');
+      ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx2d.getImageData(0, 0, canvas.width, canvas.height);
+      const qr = jsQRRef.current(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'dontInvert'
+      });
+      if (qr?.data) {
+        processCode(qr.data, true);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [camReady, scanning, scanState, processCode]);
+
+  /* ── Manual submit ──────────────────────────────────────────────── */
+  async function handleManualSubmit(e) {
     e.preventDefault();
-    doLookup(query);
+    const code = manualCode.trim().toUpperCase();
+    if (!code) return;
+    setManualBusy(code);
+    await processCode(code, false);
+    setManualCode('');
+    setManualBusy('');
   }
 
-  /* ── Mark checked in ────────────────────────────────────────────── */
-  async function handleCheckIn() {
-    if (!result?.record) return;
-    setCheckingIn(true);
-
-    const code = result.record.unique_code;
-    const name = result.record.participant_name;
-    const recordId = result.record.ID || result.record.id;
-
-    // 1. Save to localStorage immediately (works offline, instant feedback)
-    saveLocalCheckin(code, name);
-
-    // 2. Try to update the DB record (best-effort, non-blocking for UX)
-    try {
-      await window.ezsite.apis.tableUpdate(TABLE_ID, {
-        ID: recordId,
-        checked_in: true,
-        checked_in_at: new Date().toISOString()
-      });
-    } catch (err) {
-      console.warn('DB check-in update failed (local check-in still recorded):', err);
-    }
-
-    setCheckedIn(true);
-    setResult((prev) => ({ ...prev, alreadyIn: true, checkedInAt: new Date().toISOString() }));
-    setCheckingIn(false);
-  }
-
-  /* ── Clear / scan next ──────────────────────────────────────────── */
-  function handleReset() {
-    setQuery('');
-    setResult(null);
-    setCheckedIn(false);
-    setSearchErr('');
-    // Remove code from URL without a navigation
-    const url = new URL(window.location.href);
-    url.searchParams.delete('code');
-    window.history.replaceState({}, '', url.toString());
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }
+  /* ── Background colour for overlay ─────────────────────────────── */
+  const overlayBg = {
+    idle:        'transparent',
+    processing:  'rgba(59,130,246,0.18)',
+    ok:          'rgba(22,163,74,0.55)',
+    duplicate:   'rgba(234,179,8,0.55)',
+    notfound:    'rgba(220,38,38,0.55)',
+    error:       'rgba(220,38,38,0.55)',
+  }[scanState] || 'transparent';
 
   /* ── PIN screen ─────────────────────────────────────────────────── */
   if (!pinOk) {
     return (
       <div style={fullPageStyle}>
         <div style={pinCardStyle}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🔐</div>
+          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎟️</div>
           <h1 style={pinHeadingStyle}>Gate Check-In</h1>
-          <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: 24, textAlign: 'center' }}>
-            Musical Talent Showcase 2026<br />
-            Enter the event PIN to continue
+          <p style={{ color: '#6b7280', fontSize: '0.88rem', marginBottom: 22, textAlign: 'center', lineHeight: 1.5 }}>
+            Musical Talent Showcase 2026<br />Enter the gate PIN to begin
           </p>
-          <form onSubmit={handlePinSubmit}>
+          <form onSubmit={handlePinSubmit} style={{ width: '100%' }}>
             <input
               type="password"
               inputMode="numeric"
@@ -267,15 +414,13 @@ export default function CheckIn() {
               autoFocus
             />
             {pinError && (
-              <p style={{ color: '#dc2626', fontSize: '0.85rem', margin: '8px 0 0 0', textAlign: 'center' }}>
+              <p style={{ color: '#dc2626', fontSize: '0.83rem', margin: '6px 0 12px', textAlign: 'center' }}>
                 {pinError}
               </p>
             )}
-            <button type="submit" style={bigBtnStyle}>
-              Enter
-            </button>
+            <button type="submit" style={pinBtnStyle}>Enter →</button>
           </form>
-          <p style={{ marginTop: 20, fontSize: '0.78rem', color: '#9ca3af', textAlign: 'center' }}>
+          <p style={{ marginTop: 18, fontSize: '0.75rem', color: '#9ca3af', textAlign: 'center' }}>
             Ask your event coordinator for the PIN.
           </p>
         </div>
@@ -283,195 +428,230 @@ export default function CheckIn() {
     );
   }
 
-  /* ── Check-in screen ────────────────────────────────────────────── */
-  const rec = result?.record;
-  const performers = rec ? [
-    rec.participant_name,
-    rec.participant_2_name,
-    rec.participant_3_name,
-    rec.participant_4_name
-  ].filter((n) => n && n.trim()) : [];
-
+  /* ── Main scanner screen ────────────────────────────────────────── */
   return (
     <div style={fullPageStyle}>
-      <div style={cardStyle}>
+      <div style={mainCardStyle}>
 
-        {/* Header */}
-        <div style={headerStyle}>
-          <span style={{ fontSize: '1.4rem' }}>🎟️</span>
-          <span style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.5px' }}>Gate Check-In</span>
-          <button
-            onClick={() => { setPinOk(false); sessionStorage.removeItem(PIN_SESSION_KEY); }}
-            style={lockBtnStyle}
-            title="Lock screen"
-            aria-label="Lock screen"
-          >
-            🔒
-          </button>
+        {/* ── Top bar ── */}
+        <div style={topBarStyle}>
+          <span style={{ fontSize: '1rem', fontWeight: 700 }}>🎟️ Gate Check-In</span>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+            {/* Toggle camera / manual */}
+            <button
+              onClick={() => { setScanning((s) => !s); setScanState('idle'); setScanInfo(null); }}
+              style={toggleBtnStyle}
+              title={scanning ? 'Switch to manual entry' : 'Switch to camera scanner'}
+            >
+              {scanning ? '⌨️' : '📷'}
+            </button>
+            {/* Lock */}
+            <button
+              onClick={() => { sessionStorage.removeItem(PIN_KEY); setPinOk(false); stopCamera(); }}
+              style={toggleBtnStyle}
+              title="Lock screen"
+            >
+              🔒
+            </button>
+          </div>
         </div>
 
-        {/* Search form */}
-        {!result && (
-          <form onSubmit={handleSearch} style={{ padding: '20px 20px 0' }}>
-            <label style={labelStyle}>
-              Registration Code
-              <p style={{ fontWeight: 400, fontSize: '0.78rem', color: '#6b7280', margin: '2px 0 8px 0' }}>
-                Scan QR with phone camera, or type the code below
-              </p>
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                ref={inputRef}
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value.toUpperCase())}
-                placeholder="e.g. TSC26001"
-                maxLength={12}
-                style={codeInputStyle}
-                autoCapitalize="characters"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <button type="submit" disabled={!query.trim() || looking} style={searchBtnStyle}>
-                {looking ? '…' : '→'}
-              </button>
-            </div>
-            {searchErr && (
-              <div style={errBoxStyle}>
-                <span style={{ fontSize: '1.2rem' }}>❌</span>
-                <span>{searchErr}</span>
-              </div>
-            )}
-          </form>
-        )}
+        {/* ── Camera viewfinder ── */}
+        {scanning && (
+          <div style={viewfinderWrap}>
+            {/* Video stream */}
+            <video
+              ref={videoRef}
+              style={videoStyle}
+              playsInline
+              muted
+              autoPlay
+            />
 
-        {/* Loading */}
-        {looking && (
-          <div style={{ padding: '32px 20px', textAlign: 'center', color: '#6b7280' }}>
-            <div style={{ fontSize: '2rem', marginBottom: 8 }}>⏳</div>
-            Looking up…
-          </div>
-        )}
+            {/* Hidden canvas for frame capture */}
+            <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-        {/* Result card */}
-        {result && !looking && (
-          <div style={{ padding: '20px' }}>
-
-            {/* Already checked-in banner */}
-            {result.alreadyIn && !checkedIn && (
-              <div style={alreadyBannerStyle}>
-                <div style={{ fontSize: '1.8rem', marginBottom: 4 }}>⚠️</div>
-                <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>Already Checked In</div>
-                {result.checkedInAt && (
-                  <div style={{ fontSize: '0.85rem', marginTop: 4, opacity: 0.85 }}>
-                    at {fmtTime(result.checkedInAt)}
-                  </div>
+            {/* Scan result overlay (flashes over the video) */}
+            {scanState !== 'idle' && (
+              <div style={{ ...overlayStyle, background: overlayBg }}>
+                {scanState === 'processing' && (
+                  <div style={overlayText}>⏳</div>
+                )}
+                {scanState === 'ok' && scanInfo && (
+                  <>
+                    <div style={{ fontSize: '3rem', lineHeight: 1 }}>✅</div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: 6 }}>
+                      {scanInfo.name}
+                    </div>
+                    {scanInfo.others?.length > 0 && (
+                      <div style={{ fontSize: '0.9rem', marginTop: 2, opacity: 0.9 }}>
+                        + {scanInfo.others.join(', ')}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.85rem', marginTop: 8, opacity: 0.9 }}>
+                      {capitalise(scanInfo.category)} — {scanInfo.song}
+                    </div>
+                    <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: 4, letterSpacing: '2px', fontFamily: 'monospace' }}>
+                      {scanInfo.code}
+                    </div>
+                  </>
+                )}
+                {scanState === 'duplicate' && scanInfo && (
+                  <>
+                    <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>⚠️</div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: 6 }}>
+                      Already Checked In
+                    </div>
+                    <div style={{ fontSize: '1rem', marginTop: 4 }}>{scanInfo.name}</div>
+                    {scanInfo.time && (
+                      <div style={{ fontSize: '0.85rem', marginTop: 4, opacity: 0.85 }}>
+                        at {fmtTime(scanInfo.time)}
+                      </div>
+                    )}
+                  </>
+                )}
+                {(scanState === 'notfound' || scanState === 'error') && scanInfo && (
+                  <>
+                    <div style={{ fontSize: '2.5rem', lineHeight: 1 }}>❌</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 6 }}>
+                      {scanState === 'notfound' ? 'Code Not Found' : 'Lookup Error'}
+                    </div>
+                    <div style={{ fontSize: '0.9rem', marginTop: 4, fontFamily: 'monospace', letterSpacing: '2px' }}>
+                      {scanInfo.code}
+                    </div>
+                    {scanState === 'notfound' && (
+                      <div style={{ fontSize: '0.8rem', marginTop: 6, opacity: 0.85 }}>
+                        Check the code manually or contact admin
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
 
-            {/* Just-checked-in banner */}
-            {checkedIn && (
-              <div style={successBannerStyle}>
-                <div style={{ fontSize: '2rem', marginBottom: 4 }}>✅</div>
-                <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>Checked In!</div>
-                <div style={{ fontSize: '0.85rem', marginTop: 4, opacity: 0.85 }}>
-                  Welcome — enjoy the show 🎶
-                </div>
+            {/* Aim guide when idle */}
+            {scanState === 'idle' && camReady && (
+              <div style={aimGuideStyle}>
+                <div style={aimCorners} />
+                <p style={aimLabel}>Point at QR code</p>
               </div>
             )}
 
-            {/* Participant details */}
-            <div style={detailCardStyle}>
-              <div style={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: 4 }}>
-                Participant{performers.length > 1 ? 's' : ''}
+            {/* Camera loading */}
+            {!camReady && !camError && (
+              <div style={camLoadStyle}>
+                <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
+                <div style={{ fontSize: '0.9rem', color: '#6b7280' }}>Starting camera…</div>
               </div>
-              {performers.map((name, i) => (
-                <div key={i} style={{ fontSize: i === 0 ? '1.5rem' : '1rem', fontWeight: i === 0 ? 700 : 500, color: '#1E1915', lineHeight: 1.3 }}>
-                  {name}
+            )}
+
+            {/* Camera error */}
+            {camError && (
+              <div style={camLoadStyle}>
+                <div style={{ fontSize: '2rem', marginBottom: 8 }}>📷</div>
+                <div style={{ fontSize: '0.85rem', color: '#dc2626', textAlign: 'center', maxWidth: 260 }}>
+                  {camError}
                 </div>
-              ))}
-
-              <div style={detailDivider} />
-
-              <div style={detailRow}>
-                <span style={detailLabel}>Code</span>
-                <span style={{ fontWeight: 700, color: '#7B1E2D', letterSpacing: '2px', fontFamily: 'monospace', fontSize: '1.1rem' }}>
-                  {rec.unique_code}
-                </span>
               </div>
-              <div style={detailRow}>
-                <span style={detailLabel}>Category</span>
-                <span>{capitalise(rec.category)} — {capitalise(rec.performance_type)}</span>
-              </div>
-              <div style={detailRow}>
-                <span style={detailLabel}>Song</span>
-                <span style={{ fontStyle: 'italic' }}>{rec.song_title || '—'}</span>
-              </div>
-              {rec.status && (
-                <div style={detailRow}>
-                  <span style={detailLabel}>Status</span>
-                  <span style={{ color: rec.status === 'paid' ? '#16a34a' : '#9ca3af', fontWeight: 600 }}>
-                    {rec.status === 'paid' ? '✅ Paid' : rec.status}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 16 }}>
-              {!result.alreadyIn && !checkedIn && (
-                <button
-                  onClick={handleCheckIn}
-                  disabled={checkingIn}
-                  style={checkInBtnStyle}
-                >
-                  {checkingIn ? 'Marking…' : '✅  Mark as Checked In'}
-                </button>
-              )}
-              <button onClick={handleReset} style={nextBtnStyle}>
-                🔍  Scan Next Ticket
-              </button>
-            </div>
+            )}
           </div>
         )}
 
-        {/* Bottom hint */}
-        {!result && !looking && (
-          <p style={{ padding: '16px 20px', fontSize: '0.78rem', color: '#9ca3af', textAlign: 'center', borderTop: '1px solid #f3ede6', margin: 0 }}>
-            Participants scan their QR from the confirmation email.<br />
-            The phone camera app opens this page automatically.
-          </p>
+        {/* ── Manual entry mode ── */}
+        {!scanning && (
+          <div style={{ padding: '20px' }}>
+            <label style={labelStyle}>
+              Registration Code
+              <p style={{ fontWeight: 400, fontSize: '0.78rem', color: '#6b7280', margin: '2px 0 8px' }}>
+                Type or paste the code from the ticket
+              </p>
+            </label>
+            <form onSubmit={handleManualSubmit} style={{ display: 'flex', gap: 8 }}>
+              <input
+                ref={manualRef}
+                type="text"
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+                placeholder="TSC26001"
+                maxLength={12}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                style={codeInputStyle}
+              />
+              <button type="submit" disabled={!manualCode.trim() || !!manualBusy} style={goBtn}>
+                {manualBusy ? '…' : '→'}
+              </button>
+            </form>
+
+            {/* Show result inline for manual mode */}
+            {scanState !== 'idle' && scanInfo && (
+              <div style={{
+                ...inlineResult,
+                background: scanState === 'ok' ? '#dcfce7' : scanState === 'duplicate' ? '#fef3c7' : '#fef2f2',
+                borderColor: scanState === 'ok' ? '#86efac' : scanState === 'duplicate' ? '#fbbf24' : '#fca5a5',
+                color: scanState === 'ok' ? '#166534' : scanState === 'duplicate' ? '#92400e' : '#dc2626',
+              }}>
+                {scanState === 'ok' && (
+                  <>
+                    <div style={{ fontSize: '1.5rem' }}>✅</div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{scanInfo.name}</div>
+                      <div style={{ fontSize: '0.85rem', marginTop: 2 }}>
+                        {capitalise(scanInfo.category)} — {scanInfo.song}
+                      </div>
+                      <div style={{ fontSize: '0.8rem', marginTop: 2, fontFamily: 'monospace', letterSpacing: '2px' }}>
+                        {scanInfo.code} · Checked in ✓
+                      </div>
+                    </div>
+                  </>
+                )}
+                {scanState === 'duplicate' && (
+                  <>
+                    <div style={{ fontSize: '1.5rem' }}>⚠️</div>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>Already Checked In</div>
+                      <div style={{ fontSize: '0.88rem' }}>{scanInfo.name}</div>
+                      {scanInfo.time && <div style={{ fontSize: '0.8rem' }}>at {fmtTime(scanInfo.time)}</div>}
+                    </div>
+                  </>
+                )}
+                {(scanState === 'notfound' || scanState === 'error') && (
+                  <>
+                    <div style={{ fontSize: '1.5rem' }}>❌</div>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>
+                        {scanState === 'notfound' ? 'Code not found' : 'Lookup error'}
+                      </div>
+                      <div style={{ fontSize: '0.85rem' }}>
+                        {scanState === 'notfound'
+                          ? `"${scanInfo.code}" — check spelling or contact admin`
+                          : (scanInfo.msg || 'Please try again')}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Check-in count badge */}
-        <CheckInCount />
+        {/* ── Bottom bar: count + hint ── */}
+        <div style={bottomBar}>
+          {count > 0 && (
+            <span style={{ color: '#16a34a', fontWeight: 600 }}>
+              {count} checked in today
+            </span>
+          )}
+          {count === 0 && (
+            <span>No check-ins yet</span>
+          )}
+          <span style={{ marginLeft: 'auto', color: '#9ca3af' }}>
+            {scanning ? 'Camera active' : 'Manual mode'}
+          </span>
+        </div>
 
       </div>
-    </div>
-  );
-}
-
-/* Small live counter showing how many check-ins this device has recorded */
-function CheckInCount() {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    function refresh() {
-      const log = loadLocalCheckins();
-      setCount(Object.keys(log).length);
-    }
-    refresh();
-    // Refresh whenever the page gains focus (another device may have added entries)
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
-  }, []);
-
-  if (count === 0) return null;
-
-  return (
-    <div style={{ padding: '10px 20px', textAlign: 'center', fontSize: '0.78rem', color: '#9ca3af', borderTop: '1px solid #f3ede6' }}>
-      {count} check-in{count === 1 ? '' : 's'} recorded on this device today
     </div>
   );
 }
@@ -480,32 +660,34 @@ function CheckInCount() {
 
 const fullPageStyle = {
   minHeight: '100vh',
-  background: '#f5f0eb',
+  background: '#0f0f0f',
   display: 'flex',
   alignItems: 'flex-start',
   justifyContent: 'center',
-  padding: '20px 12px 40px',
+  padding: '0',
 };
 
-const cardStyle = {
-  background: '#fff',
-  borderRadius: 18,
-  boxShadow: '0 6px 30px rgba(30,25,21,0.12)',
+const mainCardStyle = {
   width: '100%',
-  maxWidth: 440,
+  maxWidth: 480,
+  minHeight: '100vh',
+  background: '#1a1a1a',
+  display: 'flex',
+  flexDirection: 'column',
   overflow: 'hidden',
 };
 
 const pinCardStyle = {
   background: '#fff',
   borderRadius: 18,
-  boxShadow: '0 6px 30px rgba(30,25,21,0.12)',
+  boxShadow: '0 6px 30px rgba(0,0,0,0.25)',
   width: '100%',
   maxWidth: 340,
   padding: '36px 28px',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
+  margin: 'auto',
 };
 
 const pinHeadingStyle = {
@@ -513,7 +695,7 @@ const pinHeadingStyle = {
   fontSize: '1.8rem',
   fontWeight: 700,
   color: '#1E1915',
-  margin: '0 0 6px 0',
+  margin: '0 0 4px',
   textAlign: 'center',
 };
 
@@ -527,62 +709,11 @@ const pinInputStyle = {
   border: '2px solid #e5e7eb',
   borderRadius: 10,
   outline: 'none',
-  marginBottom: 14,
+  marginBottom: 10,
   boxSizing: 'border-box',
 };
 
-const headerStyle = {
-  background: 'linear-gradient(135deg, #7B1E2D, #A83832)',
-  color: '#fff',
-  padding: '16px 20px',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-};
-
-const lockBtnStyle = {
-  marginLeft: 'auto',
-  background: 'transparent',
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: '1.2rem',
-  padding: 4,
-  lineHeight: 1,
-};
-
-const labelStyle = {
-  display: 'block',
-  fontSize: '0.85rem',
-  fontWeight: 600,
-  color: '#374151',
-  marginBottom: 6,
-};
-
-const codeInputStyle = {
-  flex: 1,
-  fontSize: '1.4rem',
-  letterSpacing: '3px',
-  textTransform: 'uppercase',
-  padding: '12px 14px',
-  border: '2px solid #e5e7eb',
-  borderRadius: 10,
-  outline: 'none',
-  fontFamily: 'monospace',
-  minWidth: 0,
-};
-
-const searchBtnStyle = {
-  padding: '12px 18px',
-  background: 'linear-gradient(135deg, #7B1E2D, #A83832)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 10,
-  fontSize: '1.4rem',
-  cursor: 'pointer',
-  fontWeight: 700,
-};
-
-const bigBtnStyle = {
+const pinBtnStyle = {
   display: 'block',
   width: '100%',
   padding: '14px',
@@ -593,97 +724,154 @@ const bigBtnStyle = {
   fontSize: '1.05rem',
   fontWeight: 600,
   cursor: 'pointer',
-  marginTop: 6,
 };
 
-const errBoxStyle = {
-  background: '#fef2f2',
-  border: '1.5px solid #fca5a5',
-  borderRadius: 10,
-  padding: '12px 14px',
-  marginTop: 12,
-  color: '#dc2626',
-  fontSize: '0.88rem',
+const topBarStyle = {
+  background: '#7B1E2D',
+  color: '#fff',
+  padding: '14px 16px',
   display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
-  lineHeight: 1.5,
-};
-
-const alreadyBannerStyle = {
-  background: '#fef3c7',
-  border: '1.5px solid #fbbf24',
-  borderRadius: 12,
-  padding: '14px',
-  marginBottom: 14,
-  textAlign: 'center',
-  color: '#92400e',
-};
-
-const successBannerStyle = {
-  background: '#dcfce7',
-  border: '1.5px solid #86efac',
-  borderRadius: 12,
-  padding: '14px',
-  marginBottom: 14,
-  textAlign: 'center',
-  color: '#166534',
-};
-
-const detailCardStyle = {
-  background: '#FBF5ED',
-  border: '1.5px solid #e5d9c8',
-  borderRadius: 12,
-  padding: '16px 18px',
-};
-
-const detailDivider = {
-  borderTop: '1px dashed #d4c4a8',
-  margin: '12px 0',
-};
-
-const detailRow = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: 8,
-  padding: '4px 0',
-  fontSize: '0.9rem',
-  color: '#1f2937',
-};
-
-const detailLabel = {
-  color: '#9ca3af',
-  textTransform: 'uppercase',
-  fontSize: '0.72rem',
-  letterSpacing: '1px',
+  alignItems: 'center',
+  gap: 10,
   flexShrink: 0,
-  paddingTop: 2,
 };
 
-const checkInBtnStyle = {
-  display: 'block',
+const toggleBtnStyle = {
+  background: 'rgba(255,255,255,0.18)',
+  border: 'none',
+  borderRadius: 8,
+  color: '#fff',
+  fontSize: '1.2rem',
+  padding: '5px 9px',
+  cursor: 'pointer',
+  lineHeight: 1,
+};
+
+const viewfinderWrap = {
+  flex: 1,
+  position: 'relative',
+  background: '#000',
+  overflow: 'hidden',
+  minHeight: 320,
+};
+
+const videoStyle = {
   width: '100%',
-  padding: '16px',
-  background: 'linear-gradient(135deg, #16a34a, #15803d)',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+};
+
+const overlayStyle = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#fff',
+  textAlign: 'center',
+  padding: '20px',
+  transition: 'background 0.2s',
+};
+
+const overlayText = {
+  fontSize: '2.5rem',
+};
+
+const aimGuideStyle = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  pointerEvents: 'none',
+};
+
+// CSS-drawn corner brackets via box-shadow
+const aimCorners = {
+  width: 180,
+  height: 180,
+  border: '3px solid transparent',
+  boxShadow:
+    '-18px -18px 0 0 rgba(255,255,255,0.85), ' +
+    '18px -18px 0 0 rgba(255,255,255,0.85), ' +
+    '-18px 18px 0 0 rgba(255,255,255,0.85), ' +
+    '18px 18px 0 0 rgba(255,255,255,0.85)',
+  borderRadius: 6,
+};
+
+const aimLabel = {
+  color: 'rgba(255,255,255,0.7)',
+  fontSize: '0.85rem',
+  marginTop: 14,
+  letterSpacing: '1px',
+};
+
+const camLoadStyle = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: '#111',
+  color: '#9ca3af',
+};
+
+const labelStyle = {
+  display: 'block',
+  fontSize: '0.85rem',
+  fontWeight: 600,
+  color: '#d1d5db',
+  marginBottom: 6,
+};
+
+const codeInputStyle = {
+  flex: 1,
+  fontSize: '1.4rem',
+  letterSpacing: '3px',
+  textTransform: 'uppercase',
+  padding: '12px 14px',
+  border: '2px solid #374151',
+  borderRadius: 10,
+  outline: 'none',
+  fontFamily: 'monospace',
+  minWidth: 0,
+  background: '#111',
+  color: '#f9fafb',
+};
+
+const goBtn = {
+  padding: '12px 18px',
+  background: 'linear-gradient(135deg, #7B1E2D, #A83832)',
   color: '#fff',
   border: 'none',
-  borderRadius: 12,
-  fontSize: '1.1rem',
-  fontWeight: 700,
+  borderRadius: 10,
+  fontSize: '1.4rem',
   cursor: 'pointer',
-  letterSpacing: '0.3px',
+  fontWeight: 700,
 };
 
-const nextBtnStyle = {
-  display: 'block',
-  width: '100%',
-  padding: '13px',
-  background: '#f3f4f6',
-  color: '#374151',
-  border: '1.5px solid #e5e7eb',
+const inlineResult = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 12,
+  marginTop: 16,
+  padding: '14px 16px',
   borderRadius: 12,
-  fontSize: '0.95rem',
-  fontWeight: 600,
-  cursor: 'pointer',
+  border: '1.5px solid',
+  lineHeight: 1.4,
+};
+
+const bottomBar = {
+  padding: '10px 16px',
+  display: 'flex',
+  alignItems: 'center',
+  fontSize: '0.8rem',
+  color: '#6b7280',
+  background: '#111',
+  borderTop: '1px solid #222',
+  flexShrink: 0,
 };
