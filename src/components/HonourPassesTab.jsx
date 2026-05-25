@@ -1,9 +1,184 @@
 /**
  * HonourPassesTab — Admin panel tab for issuing complimentary gate passes.
- * Self-contained component so Admin.jsx stays small enough to paste in Ezsite.
+ * Fully self-contained — email builder is inlined so this file needs no imports
+ * from paymentEmails.js (avoids Ezsite paste-truncation issues).
  */
 import { useState, useEffect, useCallback } from 'react';
-import { buildHonourPassesEmail } from '../utils/paymentEmails';
+
+/* ── Inline email builder ─────────────────────────────────────────── */
+
+const SITE_URL   = 'https://www.nzmeltingpot.com';
+const LOGO_URL   = `${SITE_URL}/images/branding/logo-300x300.png`;
+const EVENT_DATE = 'Saturday, 18 July 2026';
+const EVENT_VENUE = 'Blockhouse Bay Community Centre, 524 Blockhouse Bay Road, Blockhouse Bay, Auckland 0600';
+
+function esc(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function buildHonourPassHtml({ name, code, role, passNumber, totalPasses }) {
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`${SITE_URL}/check-in?code=${code}`)}&format=png&margin=4`;
+  return `
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="520" style="width:100%;max-width:520px;margin:18px auto;border-collapse:collapse;background:#F2FAF7;border:2px dashed #c9a227;font-family:Arial,Helvetica,sans-serif;">
+  <!-- Header -->
+  <tr>
+    <td style="background:#0B5E4F;padding:14px 22px;color:#fff;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td width="46" style="vertical-align:middle;">
+            <img src="${LOGO_URL}" alt="NZ Melting Pot" width="40" height="40" style="display:block;border-radius:50%;border:2px solid #c9a227;background:#fff;" />
+          </td>
+          <td style="vertical-align:middle;padding-left:10px;">
+            <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#c9a227;">NZ Melting Pot</div>
+            <div style="font-size:16px;font-weight:bold;font-family:Georgia,serif;color:#fff;">Musical Talent Showcase 2026</div>
+          </td>
+          <td style="vertical-align:middle;text-align:right;">
+            <span style="background:#c9a227;color:#1E1915;font-size:10px;font-weight:bold;letter-spacing:1.5px;padding:4px 8px;">HONOUR PASS${totalPasses > 1 ? ` ${passNumber}/${totalPasses}` : ''}</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <!-- COMPLIMENTARY banner -->
+  <tr>
+    <td style="background:#c9a227;color:#1E1915;text-align:center;padding:8px 0;font-weight:bold;letter-spacing:5px;font-size:12px;">
+      &#11088; COMPLIMENTARY ENTRY &#11088;
+    </td>
+  </tr>
+  <!-- Guest name -->
+  <tr>
+    <td style="padding:22px 22px 14px 22px;text-align:center;">
+      <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:2px;margin-bottom:6px;">Guest</div>
+      <div style="font-size:24px;font-weight:bold;color:#1E1915;font-family:Georgia,serif;">${esc(name)}</div>
+    </td>
+  </tr>
+  <!-- Dashed perforation -->
+  <tr>
+    <td style="padding:0 22px;">
+      <div style="border-top:2px dashed #d4c4a8;font-size:1px;line-height:1px;">&nbsp;</div>
+    </td>
+  </tr>
+  <!-- QR + Role -->
+  <tr>
+    <td style="padding:16px 22px;background:#FBF5ED;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td width="130" style="vertical-align:middle;text-align:center;">
+            <img src="${qrUrl}" alt="QR" width="120" height="120" style="display:block;border:2px solid #e5e7eb;background:#fff;margin:0 auto;" />
+            <div style="font-size:9px;color:#9ca3af;letter-spacing:2px;font-family:'Courier New',monospace;margin-top:5px;">${esc(code)}</div>
+          </td>
+          <td style="vertical-align:middle;padding-left:18px;">
+            <div style="font-size:10px;color:#0B5E4F;text-transform:uppercase;letter-spacing:2px;font-weight:700;margin-bottom:8px;">Role</div>
+            <div style="font-size:22px;font-weight:bold;color:#1E1915;font-family:'Courier New',monospace;letter-spacing:2px;">${esc(role)}</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:8px;font-style:italic;">Complimentary &middot; No charge</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <!-- Event details -->
+  <tr>
+    <td style="padding:16px 22px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-size:13px;">
+        <tr>
+          <td width="80" style="padding:4px 0;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;font-size:10px;">Date</td>
+          <td style="padding:4px 0;color:#1f2937;font-weight:600;">${EVENT_DATE}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 0;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;font-size:10px;">Venue</td>
+          <td style="padding:4px 0;color:#1f2937;">${EVENT_VENUE}</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <!-- Fine print -->
+  <tr>
+    <td style="padding:10px 22px 12px 22px;text-align:center;background:#E8F5F0;border-top:1px solid #b2d8ce;">
+      <p style="margin:0;font-size:11px;color:#0B5E4F;font-style:italic;font-weight:700;line-height:1.6;">
+        &#9888;&#65039; Please carry this pass to the gate &mdash; it must be scanned for entry.
+      </p>
+    </td>
+  </tr>
+  <!-- Footer bar -->
+  <tr>
+    <td style="background:#0B5E4F;padding:10px 22px;color:#c9a227;font-size:10px;text-align:center;letter-spacing:1.5px;">
+      COMPLIMENTARY PASS &middot; NOT FOR RESALE
+    </td>
+  </tr>
+</table>`;
+}
+
+function buildHonourPassesEmail({ recipientName, role, codes }) {
+  const count = codes.length;
+  const passesHtml = codes.map((code, i) =>
+    buildHonourPassHtml({ name: recipientName, code, role, passNumber: i + 1, totalPasses: count })
+  ).join('\n');
+
+  const subject = `Your Honour Pass — Musical Talent Showcase 2026`;
+
+  const html = `
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;padding:24px 16px;background:#f9fafb;color:#1f2937;">
+
+  <p style="font-size:15px;margin:0 0 16px 0;">Dear ${esc(recipientName)},</p>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 20px 0;">
+    <tr>
+      <td style="background:#E8F5F0;border-left:4px solid #0B5E4F;padding:14px 18px;">
+        <p style="margin:0;font-weight:700;color:#0B5E4F;font-size:15px;">
+          &#11088; Your complimentary ${count === 1 ? 'pass has' : `${count} passes have`} been issued for the Musical Talent Showcase 2026!
+        </p>
+      </td>
+    </tr>
+  </table>
+
+  <p style="font-size:14px;line-height:1.7;margin:0 0 14px 0;">
+    On behalf of the NZ Melting Pot committee, we extend our warmest thanks for your valued contribution to this event.
+    It is an honour to have you with us, and we look forward to welcoming you on the day.
+  </p>
+
+  <p style="font-size:14px;line-height:1.7;margin:0 0 24px 0;">
+    Your ${count === 1 ? 'complimentary pass is' : `${count} complimentary passes are`} below.
+    Please ${count === 1 ? 'present it' : 'distribute and present the relevant pass'} at the gate &mdash;
+    each pass has a unique QR code that will be scanned for entry.
+  </p>
+
+  <h2 style="font-family:Georgia,serif;color:#0B5E4F;text-align:center;font-size:20px;margin:0 0 6px 0;">
+    &#127915; Your ${count === 1 ? 'Honour Pass' : `${count} Honour Passes`}
+  </h2>
+  <p style="text-align:center;color:#6b7280;font-size:13px;margin:0 0 8px 0;">
+    ${count === 1 ? 'Please carry this pass to the gate on show day.' : 'One pass per person — please distribute accordingly.'}
+  </p>
+
+  ${passesHtml}
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:28px 0;">
+    <tr>
+      <td style="background:#E8F5F0;border:1.5px solid #a3d9c8;padding:20px 24px;text-align:center;">
+        <p style="margin:0 0 6px 0;font-weight:700;color:#0B5E4F;font-size:15px;font-family:Georgia,serif;">&#128197; Event Details</p>
+        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;">
+          <strong>${EVENT_DATE}</strong><br/>
+          ${EVENT_VENUE}
+        </p>
+      </td>
+    </tr>
+  </table>
+
+  <p style="font-size:14px;line-height:1.6;margin:0 0 24px 0;">
+    Warm regards,<br/>
+    <strong>The NZ Melting Pot Committee</strong>
+  </p>
+
+  <p style="font-size:11px;color:#9ca3af;text-align:center;line-height:1.6;border-top:1px solid #e5e7eb;padding-top:16px;">
+    Musical Talent Showcase 2026 &middot; NZ Melting Pot<br/>
+    ${EVENT_DATE} &middot; Blockhouse Bay Community Centre<br/>
+    <a href="${SITE_URL}" style="color:#9ca3af;">www.nzmeltingpot.com</a>
+  </p>
+</div>`;
+
+  return { subject, html };
+}
 
 const SUBMISSIONS_TABLE_ID = 78687;
 
