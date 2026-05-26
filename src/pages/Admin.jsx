@@ -99,6 +99,9 @@ export default function Admin() {
   const [saveSuccess, setSaveSuccess] = useState({});
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [downloadingCore, setDownloadingCore] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState(null);
 
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -1064,6 +1067,97 @@ export default function Admin() {
       alert('Export failed: ' + (err.message || 'Unknown error'));
     }
     setExporting(false);
+  };
+
+  /* ── Core Files Backup & Restore ──────────────────────────────── */
+
+  const handleDownloadCoreFiles = async () => {
+    setDownloadingCore(true);
+    try {
+      const { data, error } = await window.ezsite.apis.run({
+        path: 'backup/exportProject',
+        methodName: 'exportProject',
+        param: []
+      });
+      if (error) throw new Error(typeof error === 'string' ? error : JSON.stringify(error));
+      // data is expected to be a base64 string or binary zip blob
+      const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const now = new Date();
+      a.href = url;
+      a.download = `core-files-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Download failed: ' + (err.message || 'Unknown error'));
+    }
+    setDownloadingCore(false);
+  };
+
+  const handleUploadRestore = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm(
+      '⚠️ This will overwrite source files in the project root.\n\n' +
+      '.env files, node_modules, .git, dist and binary files are skipped automatically.\n\n' +
+      'Are you sure you want to proceed?'
+    )) { e.target.value = ''; return; }
+
+    setRestoring(true);
+    setRestoreResult(null);
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const files = [];
+      const skipped = [];
+
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir) continue;
+        // Safety guards — skip sensitive / generated folders
+        if (/^\.env/.test(path) ||
+            path.includes('node_modules/') ||
+            path.includes('.git/') ||
+            path.startsWith('dist/') ||
+            path.startsWith('build/')) {
+          skipped.push(path);
+          continue;
+        }
+        try {
+          const content = await entry.async('string');
+          files.push({ path, content });
+        } catch {
+          skipped.push(path); // binary — skip silently
+        }
+      }
+
+      if (files.length === 0) {
+        setRestoreResult({ ok: false, msg: 'No restorable text files found in the ZIP.' });
+        setRestoring(false);
+        e.target.value = '';
+        return;
+      }
+
+      const { data, error } = await window.ezsite.apis.run({
+        path: 'backup/restoreProject',
+        methodName: 'restoreProject',
+        param: [files]
+      });
+      if (error) throw new Error(typeof error === 'string' ? error : JSON.stringify(error));
+
+      const written = data?.written ?? files.length;
+      setRestoreResult({
+        ok: true,
+        msg: `✅ Restored ${written} file${written !== 1 ? 's' : ''} to project root.` +
+             (skipped.length > 0 ? ` (${skipped.length} skipped)` : '') +
+             ' The site will use the restored files on the next deploy.'
+      });
+    } catch (err) {
+      setRestoreResult({ ok: false, msg: '❌ Restore failed: ' + (err.message || 'Unknown error') });
+    }
+    setRestoring(false);
+    e.target.value = '';
   };
 
   const handleSave = async (key) => {
@@ -2349,6 +2443,71 @@ export default function Admin() {
                   ⬇ Members CSV
                 </button>
               </div>
+            </div>
+
+            {/* Core Files Backup & Restore */}
+            <div style={{ padding: 20, background: '#f0f4fa', border: '1px solid #b8cef0', borderRadius: 10 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: '#1E1915', fontWeight: 700 }}>
+                🗂️ Core Files Backup &amp; Restore
+              </h3>
+              <p style={{ margin: '0 0 14px', fontSize: '0.85rem', color: '#555', lineHeight: 1.6 }}>
+                Download a ZIP of all source code files (<code>src/</code>, <code>public/</code>, <code>__easysite_nodejs__/</code>,
+                root config files), or upload a previously saved ZIP to restore them back to the project root.
+              </p>
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button
+                  onClick={handleDownloadCoreFiles}
+                  disabled={downloadingCore}
+                  style={{
+                    padding: '10px 18px',
+                    background: downloadingCore ? '#999' : '#1565C0',
+                    color: '#fff', border: 'none', borderRadius: 7,
+                    fontSize: '0.9rem', fontWeight: 600,
+                    cursor: downloadingCore ? 'not-allowed' : 'pointer',
+                    opacity: downloadingCore ? 0.7 : 1
+                  }}>
+                  {downloadingCore ? 'Preparing…' : '⬇ Download Core Files ZIP'}
+                </button>
+
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={handleUploadRestore}
+                  style={{ display: 'none' }}
+                  id="restore-zip-input"
+                />
+                <button
+                  onClick={() => { setRestoreResult(null); document.getElementById('restore-zip-input').click(); }}
+                  disabled={restoring}
+                  style={{
+                    padding: '10px 18px',
+                    background: restoring ? '#999' : '#7B1E2D',
+                    color: '#fff', border: 'none', borderRadius: 7,
+                    fontSize: '0.9rem', fontWeight: 600,
+                    cursor: restoring ? 'not-allowed' : 'pointer',
+                    opacity: restoring ? 0.7 : 1
+                  }}>
+                  {restoring ? 'Restoring…' : '⬆ Upload & Restore Core Files ZIP'}
+                </button>
+              </div>
+
+              {restoreResult &&
+                <div style={{
+                  padding: '10px 14px', borderRadius: 8, marginBottom: 10,
+                  background: restoreResult.ok ? '#dcfce7' : '#fef2f2',
+                  border: `1px solid ${restoreResult.ok ? '#86efac' : '#fecaca'}`,
+                  color: restoreResult.ok ? '#166534' : '#991b1b',
+                  fontSize: '0.85rem', lineHeight: 1.6
+                }}>
+                  {restoreResult.msg}
+                </div>
+              }
+
+              <p style={{ margin: 0, fontSize: '0.78rem', color: '#6b7280', lineHeight: 1.6 }}>
+                ⚠️ Upload restores files directly to the project root. <code>.env</code> and binary files are skipped automatically.
+                Changes take effect on the next site rebuild/deploy.
+              </p>
             </div>
 
           </div>
