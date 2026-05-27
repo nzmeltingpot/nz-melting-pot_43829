@@ -99,7 +99,6 @@ export default function Admin() {
   const [saveSuccess, setSaveSuccess] = useState({});
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [downloadingCore, setDownloadingCore] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
 
@@ -1070,32 +1069,6 @@ export default function Admin() {
   };
 
   /* ── Core Files Backup & Restore ──────────────────────────────── */
-
-  const handleDownloadCoreFiles = async () => {
-    setDownloadingCore(true);
-    try {
-      const { data, error } = await window.ezsite.apis.run({
-        path: 'backup/exportProject',
-        methodName: 'exportProject',
-        param: []
-      });
-      if (error) throw new Error(typeof error === 'string' ? error : JSON.stringify(error));
-      // data is expected to be a base64 string or binary zip blob
-      const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/zip' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const now = new Date();
-      a.href = url;
-      a.download = `core-files-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Download failed: ' + (err.message || 'Unknown error'));
-    }
-    setDownloadingCore(false);
-  };
 
   const handleUploadRestore = async (e) => {
     const file = e.target.files?.[0];
@@ -2456,20 +2429,6 @@ export default function Admin() {
               </p>
 
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                <button
-                  onClick={handleDownloadCoreFiles}
-                  disabled={downloadingCore}
-                  style={{
-                    padding: '10px 18px',
-                    background: downloadingCore ? '#999' : '#1565C0',
-                    color: '#fff', border: 'none', borderRadius: 7,
-                    fontSize: '0.9rem', fontWeight: 600,
-                    cursor: downloadingCore ? 'not-allowed' : 'pointer',
-                    opacity: downloadingCore ? 0.7 : 1
-                  }}>
-                  {downloadingCore ? 'Preparing…' : '⬇ Download Core Files ZIP'}
-                </button>
-
                 <input
                   type="file"
                   accept=".zip"
