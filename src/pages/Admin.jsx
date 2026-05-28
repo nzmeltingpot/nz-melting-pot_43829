@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
-import { generateUnsubscribeLink, generateNewsletterEmail } from '../utils/emailTemplates';
+import { generateUnsubscribeLink, generateUpdateDetailsLink, generateSubscribeLink, generateNewsletterEmail } from '../utils/emailTemplates';
 import { sendBulkEmail } from '../utils/brevoClient';
 import HonourPassesTab from '../components/HonourPassesTab';
 
@@ -768,8 +768,10 @@ export default function Admin() {
     const fromObj = parseFromAddress(fromAddress);
     const replyToObj = { email: 'info@nzmeltingpot.com', name: 'NZ Melting Pot' };
 
+    const subscribeLink = generateSubscribeLink();
     const brevoRecipients = recipients.map((member) => {
       const unsubscribeLink = generateUnsubscribeLink(member.email);
+      const updateDetailsLink = generateUpdateDetailsLink(member.email);
       const personalizedBody = emailBody.
       replace(/\{name\}/gi, member.full_name || 'Member').
       replace(/\{email\}/gi, member.email);
@@ -779,6 +781,8 @@ export default function Admin() {
         personalizedBody :
         personalizedBody.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean).map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`).join(''),
         unsubscribeLink,
+        updateDetailsLink,
+        subscribeLink,
         newsletterName: 'NZ Melting Pot',
         siteName: 'NZ Melting Pot'
       });

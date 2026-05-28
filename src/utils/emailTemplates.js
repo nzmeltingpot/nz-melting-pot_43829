@@ -65,6 +65,8 @@ function buildSponsorBlock() {
  * @param {string} params.fullName - Recipient's full name
  * @param {string} params.newsletterContent - Main newsletter content (HTML supported)
  * @param {string} params.unsubscribeLink - Unsubscribe URL
+ * @param {string} [params.updateDetailsLink] - Update details URL
+ * @param {string} [params.subscribeLink] - Subscribe a friend URL
  * @param {string} [params.newsletterName] - Newsletter name (default: 'NZ Melting Pot Newsletter')
  * @param {string} [params.siteName] - Site name (default: 'NZ Melting Pot')
  * @param {string} [params.accentColor] - Primary accent color (default: brand maroon)
@@ -74,6 +76,8 @@ export function generateNewsletterEmail({
   fullName,
   newsletterContent,
   unsubscribeLink,
+  updateDetailsLink,
+  subscribeLink,
   newsletterName = 'NZ Melting Pot Newsletter',
   siteName = 'NZ Melting Pot',
   accentColor = COLOR_MAROON
@@ -159,13 +163,17 @@ export function generateNewsletterEmail({
             </td>
           </tr>
 
-          <!-- Unsubscribe -->
+          <!-- Member actions: unsubscribe / update details / subscribe a friend -->
           <tr>
             <td style="padding: 4px 40px 26px;">
-              <p style="margin: 0; font-size: 12px; color: ${COLOR_MUTED}; line-height: 1.7;">
+              <p style="margin: 0; font-size: 12px; color: ${COLOR_MUTED}; line-height: 2.0;">
                 If you'd prefer not to hear from us, you can
                 <a href="${unsubscribeLink}" style="color: ${COLOR_MAROON}; text-decoration: underline;">unsubscribe here</a>
-                — no hard feelings, you're always welcome back.
+                — no hard feelings, you're always welcome back.${updateDetailsLink ? `
+                <br/>Need to update your name or email address?
+                <a href="${updateDetailsLink}" style="color: ${COLOR_MAROON}; text-decoration: underline;">Update your details here</a>.` : ''}${subscribeLink ? `
+                <br/>Know someone who'd love our community?
+                <a href="${subscribeLink}" style="color: ${COLOR_MAROON}; text-decoration: underline;">Subscribe a friend</a>.` : ''}
               </p>
             </td>
           </tr>
@@ -213,7 +221,7 @@ ${stripHtml(newsletterContent)}
 
 You're receiving this because you're part of our community at ${siteName} — and we love having you here.
 
-If you'd prefer not to hear from us, you can unsubscribe here: ${unsubscribeLink}
+If you'd prefer not to hear from us, you can unsubscribe here: ${unsubscribeLink}${updateDetailsLink ? `\nNeed to update your name or email? Update your details here: ${updateDetailsLink}` : ''}${subscribeLink ? `\nKnow someone who'd love our community? Subscribe a friend: ${subscribeLink}` : ''}
 
 — Proudly supported by —
 JR FINANCE  ·  create wealth
@@ -258,6 +266,27 @@ function stripHtml(html) {
 export function generateUnsubscribeLink(email, baseUrl) {
   const base = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://nzmeltingpot.com');
   return `${base}/unsubscribe?email=${encodeURIComponent(email)}`;
+}
+
+/**
+ * Generate update-details URL with email parameter
+ * @param {string} email - Recipient email address
+ * @param {string} [baseUrl] - Base URL (default: auto-detect from window.location)
+ * @returns {string} Full update-details URL
+ */
+export function generateUpdateDetailsLink(email, baseUrl) {
+  const base = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://nzmeltingpot.com');
+  return `${base}/update-details?email=${encodeURIComponent(email)}`;
+}
+
+/**
+ * Generate subscribe URL (no email parameter — used as a referral / sign-up link)
+ * @param {string} [baseUrl] - Base URL (default: auto-detect from window.location)
+ * @returns {string} Full subscribe URL
+ */
+export function generateSubscribeLink(baseUrl) {
+  const base = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://nzmeltingpot.com');
+  return `${base}/subscribe`;
 }
 
 /**
@@ -417,6 +446,8 @@ export async function sendUnsubscribeConfirmationEmail({
  * @param {string} params.fullName - Recipient's full name
  * @param {string} params.newsletterContent - Main newsletter content (HTML)
  * @param {string} [params.unsubscribeLink] - Unsubscribe URL (auto-generated if not provided)
+ * @param {string} [params.updateDetailsLink] - Update details URL (auto-generated if not provided)
+ * @param {string} [params.subscribeLink] - Subscribe a friend URL
  * @param {string} [params.from] - Sender (default provided)
  * @param {string} [params.newsletterName] - Newsletter name
  * @param {string} [params.siteName] - Site name
@@ -427,18 +458,24 @@ export async function sendNewsletterEmail({
   fullName,
   newsletterContent,
   unsubscribeLink,
+  updateDetailsLink,
+  subscribeLink,
   from = 'Musical Talent Showcase <noreply@nzmeltingpot.com>',
   newsletterName,
   siteName
 }) {
-  // Auto-generate unsubscribe link if not provided
+  // Auto-generate links if not provided
   const recipientEmail = Array.isArray(to) ? to[0] : to;
   const finalUnsubscribeLink = unsubscribeLink || generateUnsubscribeLink(recipientEmail);
+  const finalUpdateDetailsLink = updateDetailsLink || generateUpdateDetailsLink(recipientEmail);
+  const finalSubscribeLink = subscribeLink || generateSubscribeLink();
 
   const { subject, html, text } = generateNewsletterEmail({
     fullName,
     newsletterContent,
     unsubscribeLink: finalUnsubscribeLink,
+    updateDetailsLink: finalUpdateDetailsLink,
+    subscribeLink: finalSubscribeLink,
     newsletterName,
     siteName
   });

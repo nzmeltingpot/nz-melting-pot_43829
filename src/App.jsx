@@ -15,6 +15,8 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const Admin = lazy(() => import('./pages/Admin'));
 const EmailTest = lazy(() => import('./pages/EmailTest'));
 const Unsubscribe = lazy(() => import('./pages/Unsubscribe'));
+const UpdateDetails = lazy(() => import('./pages/UpdateDetails'));
+const Subscribe = lazy(() => import('./pages/Subscribe'));
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'));
 const PaymentCancelled = lazy(() => import('./pages/PaymentCancelled'));
 const BookTickets = lazy(() => import('./pages/BookTickets'));
@@ -87,6 +89,8 @@ export default function App() {
             <Route path="/admin" element={<Admin />} />
             <Route path="/email-test" element={<EmailTest />} />
             <Route path="/unsubscribe" element={<Unsubscribe />} />
+            <Route path="/update-details" element={<UpdateDetails />} />
+            <Route path="/subscribe" element={<Subscribe />} />
             <Route path="/payment-success" element={<PaymentSuccess />} />
             <Route path="/payment-cancelled" element={<PaymentCancelled />} />
             <Route path="/book-tickets" element={<BookTickets />} />
