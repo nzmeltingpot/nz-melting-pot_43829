@@ -38,7 +38,7 @@ export default function Home() {
               <span className="hero__line"><em>NZ Melting Pot.</em></span>
             </h1>
             <p className="my-[25px] px-[0px] mx-[0px] py-[0px] hero__tagline">Enabling excellence by fostering unity and inclusivity in New Zealand's diverse society</p>
-            <p className="text-[21px] my-[9px] hero__subtitle">NZ Melting Pot is a not-for-profit charity that brings Auckland's communities together through music. Two events. All backgrounds. No barriers.</p>
+            <p className="text-[21px] my-[9px] hero__subtitle">NZ Melting Pot is a not-for-profit charity that brings Auckland's communities together through music. Two events. All backgrounds. All are Welcome.</p>
             <div className="hero__actions">
               <a href="#register" className="btn btn--primary btn--large" onClick={(e) => {e.preventDefault();document.getElementById('register')?.scrollIntoView({ behavior: 'smooth' });}}>Register for the Talent Showcase 2026</a>
               <a href="#events" className="btn btn--outline btn--large" onClick={(e) => {e.preventDefault();document.getElementById('events')?.scrollIntoView({ behavior: 'smooth' });}}>Our Events</a>
