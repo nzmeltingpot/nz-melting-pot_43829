@@ -93,8 +93,8 @@ export function TalentShowcaseEventSchema() {
           priceCurrency: 'NZD',
           availability: 'https://schema.org/InStock',
           url: `${SITE_URL}/musical-talent-showcase`,
-          validThrough: '2026-06-01T23:59:00+12:00',
-          description: 'Early Bird performer registration fee (until 1 June 2026). Standard rate $15 NZD thereafter, until registration closes 1 July 2026.'
+          validThrough: '2026-07-01T23:59:00+12:00',
+          description: 'Performer registration fee. $10 NZD per participant, until registrations close 1 July 2026.'
         },
         isAccessibleForFree: false
       }} />);

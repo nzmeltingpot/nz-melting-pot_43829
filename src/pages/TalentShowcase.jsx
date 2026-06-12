@@ -369,7 +369,7 @@ export default function TalentShowcase() {
               </div>
               <div className="info-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
-                <div><strong>Performer Fee</strong><span>$10 early bird (until 15/06/2026) · $15 thereafter</span></div>
+                <div><strong>Performer Fee</strong><span>$10 per participant</span></div>
               </div>
               <div className="info-item">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="6" width="18" height="13" rx="2" /><path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01" /></svg>
@@ -467,7 +467,7 @@ export default function TalentShowcase() {
           <div className="register-section__header reveal">
             <p className="text-accent">Registrations Open</p>
             <h2>Sign Up for 2026</h2>
-            <p>Fill in your details below and we'll confirm your spot. Performer fee: $10 (Early Bird) / $15 (Standard) per participant — see pricing details on the form below.</p>
+            <p>Fill in your details below and we'll confirm your spot. Performer fee: $10 per participant.</p>
           </div>
           <div className="reveal" data-delay="150">
             <RegistrationForm idPrefix="tsc" />

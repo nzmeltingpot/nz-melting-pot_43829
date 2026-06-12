@@ -362,7 +362,7 @@ export function buildAdminNotificationEmail({ formData, code, amountPaid, sessio
   ['Registration Code', code],
   ['Status', '✅ PAID'],
   ['Amount Paid', `$${amountPaid} NZD`],
-  ['Rate', formData.rate_type === 'early_bird' ? `Early Bird ($${formData.rate_per_participant}/participant)` : `Standard ($${formData.rate_per_participant}/participant)`],
+  ['Rate', `$${formData.rate_per_participant}/participant`],
   ['Stripe Session', sessionId || '—'],
   ['Submitted At', formatNZDateTime(formData.submission_timestamp) || '—'],
   ['Leader Name', formData.participant_name],

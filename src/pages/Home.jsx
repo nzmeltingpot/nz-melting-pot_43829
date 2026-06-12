@@ -193,7 +193,7 @@ export default function Home() {
                 </li>
                 <li>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" /><path d="M13 5v2M13 17v2M13 11v2" /></svg>
-                  <span className=""><strong>Performer Fee:</strong> $10 per participant (Early Bird, until 01/06/2026) · $15 thereafter — community event</span>
+                  <span className=""><strong>Performer Fee:</strong> $10 per participant — community event</span>
                 </li>
               </ul>
             </div>

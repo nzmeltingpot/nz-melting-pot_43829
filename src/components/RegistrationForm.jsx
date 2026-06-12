@@ -12,9 +12,7 @@ const SETTINGS_TABLE_ID = 79250;
  * "Inclusive" means the date itself is the LAST valid day at that rate.
  */
 const PRICING = {
-  EARLY_BIRD_RATE: 10, // NZD per participant
-  STANDARD_RATE: 15, // NZD per participant
-  EARLY_BIRD_END: '2026-06-15', // Last day at $10 (inclusive)
+  RATE: 10, // NZD per participant (flat rate)
   REGISTRATION_CLOSE: '2026-07-01' // Last day to register (inclusive)
 };
 
@@ -41,23 +39,17 @@ const DEV_STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/test_eVq8wR4vAe0W6dybscf
 
 /**
  * Determine current pricing based on NZ date.
- * Returns: { rate, type: 'early_bird' | 'standard', closed: boolean, daysToEarlyBirdEnd?, daysToClose? }
+ * Returns: { rate, type: 'flat', closed: boolean, daysToClose? }
  */
 function getCurrentPricing(todayNzDate = null) {
   const today = todayNzDate || getAucklandDateString(); // YYYY-MM-DD
-  const earlyBirdEnd = PRICING.EARLY_BIRD_END;
   const closeDate = PRICING.REGISTRATION_CLOSE;
 
-  // String comparison works for YYYY-MM-DD ISO dates
   if (today > closeDate) {
-    return { rate: PRICING.STANDARD_RATE, type: 'standard', closed: true };
-  }
-  if (today <= earlyBirdEnd) {
-    const daysToEarlyBirdEnd = daysBetween(today, earlyBirdEnd);
-    return { rate: PRICING.EARLY_BIRD_RATE, type: 'early_bird', closed: false, daysToEarlyBirdEnd };
+    return { rate: PRICING.RATE, type: 'flat', closed: true };
   }
   const daysToClose = daysBetween(today, closeDate);
-  return { rate: PRICING.STANDARD_RATE, type: 'standard', closed: false, daysToClose };
+  return { rate: PRICING.RATE, type: 'flat', closed: false, daysToClose };
 }
 
 /** Whole days between two YYYY-MM-DD dates (b - a). */
@@ -308,7 +300,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
         participant_4_name: numParticipants >= 4 ? form.elements['participant_4_name']?.value.trim() || '' : '',
         num_performers: numParticipants,
         total_fee: totalFee,
-        rate_type: pricing.type, // 'early_bird' or 'standard'
+        rate_type: 'flat',
         rate_per_participant: pricing.rate,
         song_title: form.elements['song_title'].value.trim(),
         year: form.elements['year'].value,
@@ -399,43 +391,23 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
     <div className="form-card">
       {/* Pricing banner */}
       <div style={{
-        background: pricing.type === 'early_bird' ?
-        'linear-gradient(135deg, rgba(255, 215, 0, 0.18), rgba(255, 165, 0, 0.12))' :
-        'rgba(255, 255, 255, 0.10)',
-        border: pricing.type === 'early_bird' ?
-        '1.5px solid rgba(255, 200, 50, 0.55)' :
-        '1.5px solid rgba(255, 255, 255, 0.20)',
+        background: 'rgba(255, 255, 255, 0.10)',
+        border: '1.5px solid rgba(255, 255, 255, 0.20)',
         borderRadius: 10,
         padding: '14px 18px',
         marginBottom: 22,
         textAlign: 'center',
         color: '#fff'
       }}>
-        {pricing.type === 'early_bird' ?
-        <>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.3px' }}>
-              🎉 Early Bird Rate — ${PRICING.EARLY_BIRD_RATE} per participant
-            </p>
-            <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }} className="">
-              Early bird ends {formatNZ(PRICING.EARLY_BIRD_END)}
-              {typeof pricing.daysToEarlyBirdEnd === 'number' && pricing.daysToEarlyBirdEnd >= 0 &&
-            <> ({pricing.daysToEarlyBirdEnd === 0 ? 'today is the last day' : `${pricing.daysToEarlyBirdEnd} day${pricing.daysToEarlyBirdEnd === 1 ? '' : 's'} left`}) — rate becomes ${PRICING.STANDARD_RATE}/participant after</>
-            }
-            </p>
-          </> :
-
-        <>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>
-              Standard Rate — ${PRICING.STANDARD_RATE} per participant
-            </p>
-            <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
-              Registrations close {formatNZ(PRICING.REGISTRATION_CLOSE)}
-              {typeof pricing.daysToClose === 'number' && pricing.daysToClose >= 0 &&
+        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.3px' }}>
+          $10 per participant
+        </p>
+        <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
+          Registrations close {formatNZ(PRICING.REGISTRATION_CLOSE)}
+          {typeof pricing.daysToClose === 'number' && pricing.daysToClose >= 0 &&
             <> ({pricing.daysToClose === 0 ? 'today is the last day' : `${pricing.daysToClose} day${pricing.daysToClose === 1 ? '' : 's'} left`})</>
-            }
-            </p>
-          </>
-        }
+          }
+        </p>
       </div>
 
       <form className="registration-form" name="registration" onSubmit={handleSubmit} noValidate>
@@ -684,7 +656,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
               }}>
 
               <p style={{ margin: '0 0 10px 0' }}>
-                <strong>Total payable: ${totalFee} NZD</strong> ({numParticipants} × ${pricing.rate} {pricing.type === 'early_bird' ? 'Early Bird' : 'Standard'} rate)
+                <strong>Total payable: ${totalFee} NZD</strong> ({numParticipants} × ${pricing.rate}/participant)
               </p>
               <p style={{ margin: 0 }}>
                 When you click <strong>Pay & Register</strong>, you will be taken to our secure Stripe payment page
