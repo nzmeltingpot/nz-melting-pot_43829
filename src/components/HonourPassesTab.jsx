@@ -182,7 +182,7 @@ function buildHonourPassesEmail({ recipientName, role, codes }) {
 
 const SUBMISSIONS_TABLE_ID = 78687;
 
-const ROLES = ['Judge', 'Caterer', 'Sound Crew', 'Committee Member', 'Guest Artist', 'Other'];
+const ROLES = ['Judge', 'Caterer', 'Sound Crew', 'Committee Member', 'Guest Artist', 'Donor Supporter', 'Other'];
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '—';
