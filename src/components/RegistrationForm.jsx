@@ -41,15 +41,8 @@ const DEV_STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/test_eVq8wR4vAe0W6dybscf
  * Determine current pricing based on NZ date.
  * Returns: { rate, type: 'flat', closed: boolean, daysToClose? }
  */
-function getCurrentPricing(todayNzDate = null) {
-  const today = todayNzDate || getAucklandDateString(); // YYYY-MM-DD
-  const closeDate = PRICING.REGISTRATION_CLOSE;
-
-  if (today > closeDate) {
-    return { rate: PRICING.RATE, type: 'flat', closed: true };
-  }
-  const daysToClose = daysBetween(today, closeDate);
-  return { rate: PRICING.RATE, type: 'flat', closed: false, daysToClose };
+function getCurrentPricing() {
+  return { rate: PRICING.RATE, type: 'flat', closed: false };
 }
 
 /** Whole days between two YYYY-MM-DD dates (b - a). */
@@ -403,10 +396,7 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
           $10 per participant
         </p>
         <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
-          Registrations close {formatNZ(PRICING.REGISTRATION_CLOSE)}
-          {typeof pricing.daysToClose === 'number' && pricing.daysToClose >= 0 &&
-            <> ({pricing.daysToClose === 0 ? 'today is the last day' : `${pricing.daysToClose} day${pricing.daysToClose === 1 ? '' : 's'} left`})</>
-          }
+          Register now to secure your spot
         </p>
       </div>
 
