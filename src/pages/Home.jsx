@@ -62,7 +62,7 @@ export default function Home() {
         <div className="container container--narrow">
           <div className="register-section__header reveal">
             <p className="text-accent">Musical Talent Showcase 2026</p>
-            <h2 className="">Registrations Closing Soon</h2>
+            <h2 className="">Registrations Closing Very Soon</h2>
             <p>Sign up to perform at this year's showcase. Soloists, duets, and trios — vocalists and instrumentalists — everyone's welcome.</p>
           </div>
           <div className="reveal" data-delay="150">
