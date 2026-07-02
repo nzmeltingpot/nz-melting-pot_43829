@@ -235,7 +235,7 @@ export default function TalentShowcase() {
                   {/* Gates open badge */}
                   <span style={{
                     position: 'absolute',
-                    bottom: '12%',
+                    bottom: '7%',
                     left: '50%',
                     transform: 'translateX(-50%)',
                     zIndex: 2,
