@@ -393,10 +393,10 @@ export default function RegistrationForm({ idPrefix = 'form' }) {
         color: '#fff'
       }}>
         <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', letterSpacing: '0.3px' }}>
-          $10 per participant
+          Registrations Open
         </p>
         <p style={{ margin: '6px 0 0 0', fontSize: '0.8rem', opacity: 0.9 }}>
-          Register now to secure your spot
+          $10 per participant
         </p>
       </div>
 
