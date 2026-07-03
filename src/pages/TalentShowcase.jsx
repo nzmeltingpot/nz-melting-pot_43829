@@ -228,6 +228,23 @@ export default function TalentShowcase() {
                 top: 20
               }}>
 
+              {/* Gates open banner */}
+              <div style={{
+                width: '100%',
+                maxWidth: 600,
+                background: '#7B1E2D',
+                color: '#fff',
+                textAlign: 'center',
+                padding: '12px 20px',
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: '1.05rem',
+                letterSpacing: '2px',
+                textTransform: 'uppercase'
+              }}>
+                Gates Open at 5:30 PM
+              </div>
+
               {/* Poster image */}
               <div style={{ position: 'relative', width: '100%', maxWidth: 600 }}>
                 <a
