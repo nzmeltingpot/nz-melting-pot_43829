@@ -37,7 +37,7 @@ const showcaseImages = Array.from({ length: 16 }, (_, i) => ({
   wide: i === 0 || i === 5 || i === 10
 }));
 
-const DEFAULT_POSTER_URL = 'https://newoaks.s3.us-west-1.amazonaws.com/NewOaks/5500/9a869b79-4261-4a8e-a672-53ffd86904ef.png';
+const DEFAULT_POSTER_URL = '/posters/talent-showcase-2026-poster.png';
 
 export default function TalentShowcase() {
   const location = useLocation();
@@ -60,7 +60,7 @@ export default function TalentShowcase() {
         }
       } catch (_) {}
 
-      try {
+      if (!import.meta.env.DEV) try {
         const { data, error } = await window.ezsite.apis.tablePage(SETTINGS_TABLE_ID, {
           PageNo: 1,
           PageSize: 1,
@@ -230,31 +230,6 @@ export default function TalentShowcase() {
 
               {/* Poster image */}
               <div style={{ position: 'relative', width: '100%', maxWidth: 600 }}>
-                {/* Inner wrapper so badge is positioned relative to image only */}
-                <div style={{ position: 'relative' }}>
-                  {/* Gates open badge */}
-                  <span style={{
-                    position: 'absolute',
-                    bottom: '7%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 2,
-                    fontSize: '0.65rem',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    padding: '0.3rem 0.75rem',
-                    borderRadius: '9999px',
-                    background: 'linear-gradient(145deg, rgba(255,252,248,0.98) 0%, rgba(255,252,248,0.92) 50%, rgba(245,237,223,0.9) 100%)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    color: 'var(--color-ember)',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8), inset 0 -1px 0 rgba(0,0,0,0.05)',
-                    border: '1px solid rgba(255,255,255,0.3)',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    Gates Open at 5.30PM
-                  </span>
                 <a
                   href={posterUrl}
                   target="_blank"
@@ -287,7 +262,6 @@ export default function TalentShowcase() {
                     style={{ width: '100%', height: 'auto', display: 'block' }}
                     className="object-contain" />
                 </a>
-                </div>{/* end inner wrapper */}
 
                 {/* Admin-only replace poster button */}
                 {isAdmin &&
