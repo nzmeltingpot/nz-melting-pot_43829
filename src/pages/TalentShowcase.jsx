@@ -37,7 +37,7 @@ const showcaseImages = Array.from({ length: 16 }, (_, i) => ({
   wide: i === 0 || i === 5 || i === 10
 }));
 
-const DEFAULT_POSTER_URL = '/posters/talent-showcase-2026-poster.png';
+const DEFAULT_POSTER_URL = 'https://newoaks.s3.us-west-1.amazonaws.com/NewOaks/5500/9a869b79-4261-4a8e-a672-53ffd86904ef.png';
 
 export default function TalentShowcase() {
   const location = useLocation();
@@ -68,8 +68,9 @@ export default function TalentShowcase() {
         });
         if (!error && data?.List?.length > 0) {
           settingIdRef.current = data.List[0].ID;
-          const dbUrl = data.List[0].setting_value;
-          if (dbUrl) setPosterUrl(dbUrl);
+          if (data.List[0].setting_value) {
+            setPosterUrl(data.List[0].setting_value);
+          }
         }
       } catch (_) {}
     })();
