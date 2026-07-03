@@ -60,7 +60,7 @@ export default function TalentShowcase() {
         }
       } catch (_) {}
 
-      if (!import.meta.env.DEV) try {
+      try {
         const { data, error } = await window.ezsite.apis.tablePage(SETTINGS_TABLE_ID, {
           PageNo: 1,
           PageSize: 1,
@@ -68,9 +68,7 @@ export default function TalentShowcase() {
         });
         if (!error && data?.List?.length > 0) {
           settingIdRef.current = data.List[0].ID;
-          if (data.List[0].setting_value) {
-            setPosterUrl(data.List[0].setting_value);
-          }
+          // Poster URL is now managed via the static file — DB value no longer overrides
         }
       } catch (_) {}
     })();
