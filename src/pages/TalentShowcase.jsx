@@ -68,7 +68,8 @@ export default function TalentShowcase() {
         });
         if (!error && data?.List?.length > 0) {
           settingIdRef.current = data.List[0].ID;
-          // Poster URL is now managed via the static file — DB value no longer overrides
+          const dbUrl = data.List[0].setting_value;
+          if (dbUrl) setPosterUrl(dbUrl);
         }
       } catch (_) {}
     })();
