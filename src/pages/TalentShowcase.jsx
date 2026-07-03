@@ -486,6 +486,20 @@ export default function TalentShowcase() {
             <h2>Sign Up for 2026</h2>
             <p>Fill in your details below and we'll confirm your spot. Performer fee: $10 per participant.</p>
           </div>
+          <div style={{
+            background: '#7B1E2D',
+            color: '#fff',
+            textAlign: 'center',
+            padding: '12px 20px',
+            borderRadius: 8,
+            fontWeight: 700,
+            fontSize: '1.05rem',
+            letterSpacing: '2px',
+            textTransform: 'uppercase',
+            marginBottom: 16
+          }}>
+            Gates Open at 5:30 PM
+          </div>
           <div className="reveal" data-delay="150">
             <RegistrationForm idPrefix="tsc" />
           </div>

@@ -65,6 +65,20 @@ export default function Home() {
             <h2 className="">Registrations Closing Very Soon</h2>
             <p>Sign up to perform at this year's showcase. Soloists, duets, and trios — vocalists and instrumentalists — everyone's welcome.</p>
           </div>
+          <div style={{
+            background: '#7B1E2D',
+            color: '#fff',
+            textAlign: 'center',
+            padding: '12px 20px',
+            borderRadius: 8,
+            fontWeight: 700,
+            fontSize: '1.05rem',
+            letterSpacing: '2px',
+            textTransform: 'uppercase',
+            marginBottom: 16
+          }}>
+            Gates Open at 5:30 PM
+          </div>
           <div className="reveal" data-delay="150">
             <RegistrationForm idPrefix="home" />
           </div>
