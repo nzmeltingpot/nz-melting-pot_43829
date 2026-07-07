@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import useScrollReveal from '../hooks/useScrollReveal';
 import usePageMeta from '../hooks/usePageMeta';
-import RegistrationForm from '../components/RegistrationForm';
 import Gallery from '../components/Gallery';
 import Breadcrumbs from '../components/Breadcrumbs';
 import AnimatedIcon from '../components/AnimatedIcon';
@@ -482,9 +481,8 @@ export default function TalentShowcase() {
         </div>
         <div className="container container--narrow">
           <div className="register-section__header reveal">
-            <p className="text-accent">Registrations Open</p>
-            <h2>Sign Up for 2026</h2>
-            <p>Fill in your details below and we'll confirm your spot. Performer fee: $10 per participant.</p>
+            <p className="text-accent">Musical Talent Showcase 2026</p>
+            <h2>Performer Registrations</h2>
           </div>
           <div style={{
             background: '#7B1E2D',
@@ -501,7 +499,57 @@ export default function TalentShowcase() {
             Gates Open at 5:30 PM
           </div>
           <div className="reveal" data-delay="150">
-            <RegistrationForm idPrefix="tsc" />
+            <div style={{
+              background: '#fff',
+              borderRadius: 16,
+              padding: '28px 24px',
+              boxShadow: '0 4px 24px rgba(30,25,21,0.10)',
+              maxWidth: 620,
+              margin: '0 auto'
+            }}>
+              <div style={{
+                display: 'inline-block',
+                background: '#7B1E2D',
+                color: '#fff',
+                borderRadius: 20,
+                padding: '5px 18px',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                marginBottom: 18
+              }}>
+                Registrations Closed
+              </div>
+              <p style={{ fontSize: '0.9rem', color: '#374151', marginBottom: 8 }}>
+                For queries, contact <strong>Nestor</strong> on{' '}
+                <a href="tel:0212698763" style={{ color: '#7B1E2D', fontWeight: 600 }}>021 269 8763</a>.
+              </p>
+              <p style={{ fontSize: '0.92rem', color: '#4B5563', marginBottom: 22, lineHeight: 1.65 }}>
+                A warm thank you to everyone who has registered — your enthusiasm makes this showcase something truly special for our community.
+              </p>
+              <hr style={{ border: 'none', borderTop: '1px solid #e2e8f0', marginBottom: 20 }} />
+              <div style={{
+                background: '#FBF5ED',
+                borderLeft: '4px solid #7B1E2D',
+                borderRadius: '0 12px 12px 0',
+                padding: '18px 20px',
+                marginBottom: 16
+              }}>
+                <p style={{ fontWeight: 700, fontSize: '0.97rem', color: '#1f2937', margin: '0 0 6px 0' }}>
+                  Book your audience tickets now
+                </p>
+                <p style={{ fontSize: '0.87rem', color: '#4B5563', margin: '0 0 14px', lineHeight: 1.6 }}>
+                  Seating is limited — book online early to secure your spot and help us plan the evening smoothly.
+                </p>
+                <Link to="/book-tickets" className="btn btn--primary" style={{ fontSize: '0.9rem' }}>
+                  Book Audience Tickets →
+                </Link>
+              </div>
+              <p style={{ fontSize: '0.83rem', color: '#6B7280', lineHeight: 1.6, textAlign: 'center', margin: 0 }}>
+                Please help spread the word via WhatsApp groups, family circles, and social media — every share counts!
+              </p>
+            </div>
           </div>
         </div>
         <div className="divider divider--bottom">
