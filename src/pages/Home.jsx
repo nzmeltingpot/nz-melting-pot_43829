@@ -116,13 +116,13 @@ export default function Home() {
                 marginBottom: 16
               }}>
                 <p style={{ fontWeight: 700, fontSize: '0.97rem', color: '#1f2937', margin: '0 0 6px 0' }}>
-                  Book your audience tickets now
+                  An evening of live music you won't want to miss
                 </p>
                 <p style={{ fontSize: '0.87rem', color: '#4B5563', margin: '0 0 14px', lineHeight: 1.6 }}>
-                  Seating is limited — book online early to secure your spot and help us plan the evening smoothly.
+                  Local performers, community spirit, and incredible talent — all for just <strong>$10 a ticket</strong>. Seats are limited, so book online now and guarantee your place. It only takes a minute!
                 </p>
                 <Link to="/book-tickets" className="btn btn--primary" style={{ fontSize: '0.9rem' }}>
-                  Book Audience Tickets →
+                  Reserve My Seat →
                 </Link>
               </div>
               <p style={{ fontSize: '0.83rem', color: '#6B7280', lineHeight: 1.6, textAlign: 'center', margin: 0 }}>
