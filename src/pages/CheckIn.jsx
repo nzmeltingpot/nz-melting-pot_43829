@@ -31,7 +31,8 @@ import usePageMeta from '../hooks/usePageMeta';
 
 /* ── Configuration ───────────────────────────────────────────────────── */
 const GATE_PIN        = '2026';               // Change each event
-const TABLE_ID        = 78687;                // Ezsite submissions table
+const TABLE_ID        = 78687;                // Ezsite submissions table (TSC26 + HON26)
+const BOOKINGS_TABLE_ID = 82471;              // Audience ticket bookings (AUD26)
 const PIN_KEY         = 'checkin_auth';       // sessionStorage
 const LOG_KEY         = 'tsc26_checkins';     // localStorage check-in log
 const SCAN_COOLDOWN   = 2000;                 // ms between two scans of the same code
@@ -275,7 +276,11 @@ export default function CheckIn() {
     setScanInfo(null);
 
     try {
-      const { data, error } = await window.ezsite.apis.tablePage(TABLE_ID, {
+      // Audience tickets (AUD26) live in a separate table from performers/passes
+      const isAudience = code.startsWith('AUD26');
+      const lookupTable = isAudience ? BOOKINGS_TABLE_ID : TABLE_ID;
+
+      const { data, error } = await window.ezsite.apis.tablePage(lookupTable, {
         PageNo: 1, PageSize: 5,
         Filters: [{ Name: 'unique_code', Op: 'Equal', Value: code }]
       });
@@ -289,7 +294,8 @@ export default function CheckIn() {
       }
 
       const rec = data.List[0];
-      const name = rec.participant_name || code;
+      // Audience bookings use buyer_name; performers/passes use participant_name
+      const name = isAudience ? (rec.buyer_name || code) : (rec.participant_name || code);
 
       // Check if already in
       const log = loadLog();
@@ -299,7 +305,7 @@ export default function CheckIn() {
       if (localEntry || dbIn) {
         const at = localEntry?.at || rec.checked_in_at || null;
         setScanState('duplicate');
-        setScanInfo({ code, name, category: rec.category, song: rec.song_title, time: at });
+        setScanInfo({ code, name, category: isAudience ? 'audience' : rec.category, song: rec.song_title, time: at });
         playFail(audioCtxRef);
         setTimeout(() => { setScanState('idle'); setScanInfo(null); lastCodeRef.current = ''; }, FAIL_HOLD);
         return;
@@ -308,7 +314,7 @@ export default function CheckIn() {
       // Mark as checked in
       saveLog(code, name);
       try {
-        await window.ezsite.apis.tableUpdate(TABLE_ID, {
+        await window.ezsite.apis.tableUpdate(lookupTable, {
           ID: rec.ID || rec.id,
           checked_in: true,
           checked_in_at: new Date().toISOString()
@@ -319,10 +325,12 @@ export default function CheckIn() {
       setScanInfo({
         code,
         name,
-        others: [rec.participant_2_name, rec.participant_3_name, rec.participant_4_name].filter(Boolean),
-        category: rec.category,
-        perf: rec.performance_type,
-        song: rec.song_title
+        others: isAudience
+          ? (rec.ticket_count > 1 ? [`+ ${rec.ticket_count - 1} more ticket${rec.ticket_count - 1 > 1 ? 's' : ''}`] : [])
+          : [rec.participant_2_name, rec.participant_3_name, rec.participant_4_name].filter(Boolean),
+        category: isAudience ? 'audience' : rec.category,
+        perf: isAudience ? null : rec.performance_type,
+        song: isAudience ? null : rec.song_title
       });
       playSuccess(audioCtxRef);
       refreshCount();
