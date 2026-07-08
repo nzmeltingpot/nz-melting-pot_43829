@@ -101,6 +101,10 @@ export default function Admin() {
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingAudience, setExportingAudience] = useState(false);
+  const [subsLive, setSubsLive] = useState([]);
+  const [loadingSubsLive, setLoadingSubsLive] = useState(false);
+  const [audLive, setAudLive] = useState([]);
+  const [loadingAudLive, setLoadingAudLive] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
 
@@ -266,6 +270,30 @@ export default function Admin() {
   useEffect(() => {
     if (user && activeTab === 'apikeys') loadEnvStatus();
   }, [user, activeTab, loadEnvStatus]);
+
+  const loadSubmissionsLive = useCallback(async () => {
+    if (!window.ezsite?.apis?.tablePage) return;
+    setLoadingSubsLive(true);
+    try {
+      const { data } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
+        PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false
+      });
+      setSubsLive((data?.List || []).filter(r => !String(r.unique_code || '').startsWith('HON26')));
+    } catch {}
+    setLoadingSubsLive(false);
+    setLoadingAudLive(true);
+    try {
+      const { data } = await window.ezsite.apis.tablePage(BOOKINGS_TABLE_ID, {
+        PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false
+      });
+      setAudLive(data?.List || []);
+    } catch {}
+    setLoadingAudLive(false);
+  }, []);
+
+  useEffect(() => {
+    if (user && activeTab === 'submissions') loadSubmissionsLive();
+  }, [user, activeTab, loadSubmissionsLive]);
 
   const handleSaveEnvVar = async (key) => {
     const value = envValues[key]?.trim();
@@ -1022,7 +1050,9 @@ export default function Admin() {
       { header: 'Total Fee', key: 'total_fee' },
       { header: 'Heard About', key: 'heard_about' },
       { header: 'Submission Time', key: 'submission_timestamp' },
-      { header: 'Year', key: 'year' }];
+      { header: 'Year', key: 'year' },
+      { header: 'Checked In', key: 'checked_in' },
+      { header: 'Checked In At', key: 'checked_in_at' }];
 
 
       // Helper to escape CSV values
@@ -1103,7 +1133,9 @@ export default function Admin() {
         { header: 'Total Paid ($)', key: 'total_amount' },
         { header: 'Attendee Names', key: 'attendee_names' },
         { header: 'Booking Time', key: 'booking_timestamp' },
-        { header: 'Year', key: 'year' }
+        { header: 'Year', key: 'year' },
+        { header: 'Checked In', key: 'checked_in' },
+        { header: 'Checked In At', key: 'checked_in_at' }
       ];
 
       const escapeCSV = (val, isDate = false) => {
@@ -1512,13 +1544,50 @@ export default function Admin() {
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Participation Registrations</h3>
               <span style={{ marginLeft: 'auto', background: '#7B1E2D', color: '#fff', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '1px', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>Table 78687</span>
             </div>
-            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
-              Performer registrations submitted via the participation form (codes TSC26xxx). Honour passes are excluded from this download.
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 12 }}>
+              Performer registrations submitted via the participation form (codes TSC26xxx). Honour passes are excluded.
             </p>
-            <button onClick={exportToExcel} disabled={exporting} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'not-allowed' : 'pointer' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-              {exporting ? 'Exporting…' : 'Download Participation CSV'}
-            </button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+              <button onClick={exportToExcel} disabled={exporting} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                {exporting ? 'Exporting…' : 'Download Participation CSV'}
+              </button>
+              <button onClick={loadSubmissionsLive} disabled={loadingSubsLive} style={{ background: 'none', border: 'none', color: '#7B1E2D', fontWeight: 600, fontSize: '0.85rem', cursor: loadingSubsLive ? 'default' : 'pointer', padding: 0 }}>
+                {loadingSubsLive ? 'Loading…' : 'Refresh ↺'}
+              </button>
+            </div>
+            {subsLive.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: 8 }}>
+                  <strong style={{ color: subsLive.filter(r => r.checked_in).length > 0 ? '#16a34a' : '#1E1915' }}>
+                    {subsLive.filter(r => r.checked_in).length}
+                  </strong> of {subsLive.length} checked in
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr>
+                      {['Code', 'Name', 'Category', 'Checked In'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #e6ddd3', color: '#3D342E', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subsLive.map(r => (
+                      <tr key={r.ID || r.id}>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', fontFamily: 'monospace', color: '#7B1E2D', fontWeight: 700 }}>{r.unique_code}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>{r.participant_name}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', color: '#666' }}>{r.category}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>
+                          {(r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
+                            ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {r.checked_in_at ? formatDate(r.checked_in_at) : ''}</span>
+                            : <span style={{ color: '#9ca3af' }}>—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* ── 2. Audience Ticket Bookings ── */}
@@ -1528,13 +1597,50 @@ export default function Admin() {
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Audience Ticket Bookings</h3>
               <span style={{ marginLeft: 'auto', background: '#0B5E4F', color: '#fff', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '1px', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>Table 82471</span>
             </div>
-            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 12 }}>
               Audience ticket purchases made via the Book Tickets form (codes AUD26xxx). Separate from performer registrations.
             </p>
-            <button onClick={exportAudienceTickets} disabled={exportingAudience} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', opacity: exportingAudience ? 0.6 : 1, cursor: exportingAudience ? 'not-allowed' : 'pointer' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
-              {exportingAudience ? 'Exporting…' : 'Download Audience Tickets CSV'}
-            </button>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+              <button onClick={exportAudienceTickets} disabled={exportingAudience} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', opacity: exportingAudience ? 0.6 : 1, cursor: exportingAudience ? 'not-allowed' : 'pointer' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                {exportingAudience ? 'Exporting…' : 'Download Audience Tickets CSV'}
+              </button>
+              <button onClick={loadSubmissionsLive} disabled={loadingAudLive} style={{ background: 'none', border: 'none', color: '#0B5E4F', fontWeight: 600, fontSize: '0.85rem', cursor: loadingAudLive ? 'default' : 'pointer', padding: 0 }}>
+                {loadingAudLive ? 'Loading…' : 'Refresh ↺'}
+              </button>
+            </div>
+            {audLive.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: 8 }}>
+                  <strong style={{ color: audLive.filter(r => r.checked_in).length > 0 ? '#16a34a' : '#1E1915' }}>
+                    {audLive.filter(r => r.checked_in).length}
+                  </strong> of {audLive.length} bookings checked in
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr>
+                      {['Ref', 'Buyer', 'Tickets', 'Checked In'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #e6ddd3', color: '#3D342E', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {audLive.map(r => (
+                      <tr key={r.ID || r.id}>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', fontFamily: 'monospace', color: '#0B5E4F', fontWeight: 700 }}>{r.booking_ref}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>{r.buyer_name}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', textAlign: 'center' }}>{r.ticket_count}</td>
+                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>
+                          {(r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
+                            ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅</span>
+                            : <span style={{ color: '#9ca3af' }}>—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
         </div>

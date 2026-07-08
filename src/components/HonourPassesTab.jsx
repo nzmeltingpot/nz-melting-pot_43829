@@ -194,6 +194,16 @@ const formatDate = (dateStr) => {
   return s;
 };
 
+const fmtCheckinTime = (iso) => {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('en-NZ', {
+      hour: '2-digit', minute: '2-digit', hour12: true,
+      timeZone: 'Pacific/Auckland'
+    });
+  } catch { return String(iso).slice(11, 16); }
+};
+
 export default function HonourPassesTab() {
   const [name, setName]     = useState('');
   const [email, setEmail]   = useState('');
@@ -240,6 +250,8 @@ export default function HonourPassesTab() {
         { h: 'Role',        k: 'performance_type' },
         { h: 'Email',       k: 'email' },
         { h: 'Date Issued', k: 'submission_timestamp' },
+        { h: 'Checked In',   k: 'checked_in' },
+        { h: 'Checked In At', k: 'checked_in_at' },
       ];
       const esc = v => {
         if (v == null) return '';
@@ -440,7 +452,7 @@ export default function HonourPassesTab() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr>
-                  {['Code', 'Name', 'Role', 'Email', 'Issued'].map((h) => (
+                  {['Code', 'Name', 'Role', 'Email', 'Issued', 'Scanned'].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 10px', borderBottom: '2px solid #E6DDD3', fontWeight: 700, color: '#3D342E', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
                   ))}
                 </tr>
@@ -459,6 +471,11 @@ export default function HonourPassesTab() {
                     </td>
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6', color: '#1E1915' }}>{p.email || '—'}</td>
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6', color: '#1E1915' }}>{formatDate(p.submission_timestamp || p.CreatedAt)}</td>
+                    <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6' }}>
+                      {p.checked_in
+                        ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {fmtCheckinTime(p.checked_in_at)}</span>
+                        : <span style={{ color: '#9ca3af' }}>—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
