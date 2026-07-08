@@ -53,7 +53,8 @@ const extractYear = (dateStr) => {
 };
 
 const SETTINGS_TABLE_ID = 79250;
-const SUBMISSIONS_TABLE_ID = 78687;
+const SUBMISSIONS_TABLE_ID = 78687;  // holds TSC26 registrations + HON26 honour passes
+const BOOKINGS_TABLE_ID = 82471;     // audience ticket bookings
 const MEMBERS_TABLE_ID = 79993;
 
 const SETTING_LABELS = {
@@ -99,6 +100,7 @@ export default function Admin() {
   const [saveSuccess, setSaveSuccess] = useState({});
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingAudience, setExportingAudience] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
 
@@ -995,9 +997,10 @@ export default function Admin() {
         return;
       }
 
-      const submissions = data.List;
+      // Filter to participation registrations only — exclude HON26 honour passes
+      const submissions = data.List.filter(r => !String(r.unique_code || '').startsWith('HON26'));
       if (submissions.length === 0) {
-        alert('No submissions to export.');
+        alert('No participation registrations found.');
         setExporting(false);
         return;
       }
@@ -1053,7 +1056,7 @@ export default function Admin() {
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const year = now.getFullYear();
       const dateStr = `${day}-${month}-${year}`;
-      const filename = `form_submissions_${dateStr}.csv`;
+      const filename = `participation_registrations_${dateStr}.csv`;
 
       // Trigger download
       const url = URL.createObjectURL(blob);
@@ -1070,6 +1073,67 @@ export default function Admin() {
       alert('Export failed: ' + (err.message || 'Unknown error'));
     }
     setExporting(false);
+  };
+
+  // 2. Audience ticket bookings — table 82471
+  const exportAudienceTickets = async () => {
+    setExportingAudience(true);
+    try {
+      const { data, error } = await window.ezsite.apis.tablePage(BOOKINGS_TABLE_ID, {
+        PageNo: 1, PageSize: 10000, OrderByField: 'id', IsAsc: false
+      });
+      if (error || !data?.List) {
+        alert('Failed to fetch audience bookings: ' + (error || 'Unknown error'));
+        setExportingAudience(false);
+        return;
+      }
+      const bookings = data.List;
+      if (bookings.length === 0) {
+        alert('No audience ticket bookings found.');
+        setExportingAudience(false);
+        return;
+      }
+
+      const columns = [
+        { header: 'Booking Reference', key: 'unique_code' },
+        { header: 'Buyer Name', key: 'buyer_name' },
+        { header: 'Email', key: 'buyer_email' },
+        { header: 'Phone', key: 'buyer_phone' },
+        { header: 'Tickets', key: 'ticket_count' },
+        { header: 'Total Paid ($)', key: 'total_amount' },
+        { header: 'Attendee Names', key: 'attendee_names' },
+        { header: 'Booking Time', key: 'booking_timestamp' },
+        { header: 'Year', key: 'year' }
+      ];
+
+      const escapeCSV = (val, isDate = false) => {
+        if (val === null || val === undefined) return '';
+        if (isDate && val) { const f = formatDate(val); if (f !== '—') return f; }
+        const str = String(val);
+        return (str.includes(',') || str.includes('"') || str.includes('\n'))
+          ? '"' + str.replace(/"/g, '""') + '"'
+          : str;
+      };
+      const headerRow = columns.map(c => escapeCSV(c.header)).join(',');
+      const dataRows = bookings.map(row =>
+        columns.map(c => escapeCSV(row[c.key], c.key.includes('timestamp'))).join(',')
+      );
+      const bom = '﻿';
+      const blob = new Blob([bom + [headerRow, ...dataRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const now = new Date();
+      const ds = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${now.getFullYear()}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audience_ticket_bookings_${ds}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Export failed: ' + (err.message || 'Unknown error'));
+    }
+    setExportingAudience(false);
   };
 
   /* ── Core Files Backup & Restore ──────────────────────────────── */
@@ -1439,42 +1503,41 @@ export default function Admin() {
 
         {/* Submissions Tab */}
         {activeTab === 'submissions' &&
-        <div style={{ padding: '20px 24px', background: '#f8f6f3', borderRadius: 12, border: '1px solid #e6ddd3' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: '1.3rem' }}>📥</span>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Export Submissions</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* ── 1. Participation Registrations ── */}
+          <div style={{ padding: '20px 24px', background: '#f8f6f3', borderRadius: 12, border: '1px solid #e6ddd3' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: '1.3rem' }}>🎤</span>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Participation Registrations</h3>
+              <span style={{ marginLeft: 'auto', background: '#7B1E2D', color: '#fff', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '1px', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>Table 78687</span>
             </div>
             <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
-              Download all form submissions as a CSV file (opens in Excel, Google Sheets, etc.)
+              Performer registrations submitted via the participation form (codes TSC26xxx). Honour passes are excluded from this download.
             </p>
-            <button
-            onClick={exportToExcel}
-            disabled={exporting}
-            style={{
-              ...styles.primaryBtn,
-              width: 'auto',
-              padding: '10px 24px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              opacity: exporting ? 0.6 : 1,
-              cursor: exporting ? 'not-allowed' : 'pointer'
-            }}>
-
-              {exporting ?
-            <>Exporting...</> :
-
-            <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                  Download Excel (CSV)
-                </>
-            }
+            <button onClick={exportToExcel} disabled={exporting} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, opacity: exporting ? 0.6 : 1, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {exporting ? 'Exporting…' : 'Download Participation CSV'}
             </button>
           </div>
+
+          {/* ── 2. Audience Ticket Bookings ── */}
+          <div style={{ padding: '20px 24px', background: '#f8f6f3', borderRadius: 12, border: '1px solid #e6ddd3' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: '1.3rem' }}>🎟️</span>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Audience Ticket Bookings</h3>
+              <span style={{ marginLeft: 'auto', background: '#0B5E4F', color: '#fff', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '1px', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>Table 82471</span>
+            </div>
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
+              Audience ticket purchases made via the Book Tickets form (codes AUD26xxx). Separate from performer registrations.
+            </p>
+            <button onClick={exportAudienceTickets} disabled={exportingAudience} style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', opacity: exportingAudience ? 0.6 : 1, cursor: exportingAudience ? 'not-allowed' : 'pointer' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+              {exportingAudience ? 'Exporting…' : 'Download Audience Tickets CSV'}
+            </button>
+          </div>
+
+        </div>
         }
 
         {/* Members Tab */}
