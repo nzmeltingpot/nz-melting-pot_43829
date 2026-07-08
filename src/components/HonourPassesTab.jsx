@@ -203,6 +203,7 @@ export default function HonourPassesTab() {
   const [result, setResult]         = useState(null);
   const [passes, setPasses]         = useState([]);
   const [loading, setLoading]       = useState(false);
+  const [exportingPasses, setExportingPasses] = useState(false);
 
   const loadPasses = useCallback(async () => {
     if (!window.ezsite?.apis?.tablePage) return;
@@ -219,6 +220,47 @@ export default function HonourPassesTab() {
   }, []);
 
   useEffect(() => { loadPasses(); }, [loadPasses]);
+
+  const exportPassesCSV = async () => {
+    setExportingPasses(true);
+    try {
+      const { data, error } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
+        PageNo: 1, PageSize: 1000,
+        OrderByField: 'id', IsAsc: false,
+        Filters: [{ Name: 'category', Op: 'Equal', Value: 'honour_pass' }]
+      });
+      if (error || !data?.List?.length) {
+        alert(error ? 'Failed to fetch passes.' : 'No honour passes found.');
+        setExportingPasses(false);
+        return;
+      }
+      const cols = [
+        { h: 'Pass Code',   k: 'unique_code' },
+        { h: 'Name',        k: 'participant_name' },
+        { h: 'Role',        k: 'performance_type' },
+        { h: 'Email',       k: 'email' },
+        { h: 'Date Issued', k: 'submission_timestamp' },
+      ];
+      const esc = v => {
+        if (v == null) return '';
+        const s = String(v);
+        return (s.includes(',') || s.includes('"') || s.includes('\n'))
+          ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const rows = [
+        cols.map(c => esc(c.h)).join(','),
+        ...data.List.map(r => cols.map(c => esc(r[c.k])).join(','))
+      ].join('\n');
+      const blob = new Blob(['﻿' + rows], { type: 'text/csv;charset=utf-8;' });
+      const now = new Date();
+      const ds = `${String(now.getDate()).padStart(2,'0')}-${String(now.getMonth()+1).padStart(2,'0')}-${now.getFullYear()}`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `honour_passes_${ds}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    } catch (err) { alert('Export failed: ' + (err.message || 'Unknown error')); }
+    setExportingPasses(false);
+  };
 
   const handleIssue = async () => {
     if (!name.trim() || !email.trim()) {
@@ -377,10 +419,18 @@ export default function HonourPassesTab() {
       {/* Recently issued passes */}
       <div style={{ marginTop: 28 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1E1915' }}>Recently Issued Passes</h3>
-          <button onClick={loadPasses} style={{ background: 'none', border: 'none', color: '#7B1E2D', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', padding: 0 }}>
-            Refresh ↺
-          </button>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1E1915' }}>Issued Passes</h3>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button onClick={loadPasses} style={{ background: 'none', border: 'none', color: '#7B1E2D', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', padding: 0 }}>
+              Refresh ↺
+            </button>
+            <button
+              onClick={exportPassesCSV}
+              disabled={exportingPasses}
+              style={{ background: '#c9a227', color: '#1E1915', border: 'none', borderRadius: 8, padding: '6px 14px', fontWeight: 700, fontSize: '0.8rem', cursor: exportingPasses ? 'not-allowed' : 'pointer', opacity: exportingPasses ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              ⬇ {exportingPasses ? 'Exporting…' : 'Download CSV'}
+            </button>
+          </div>
         </div>
         {loading ?
           <p style={{ color: '#666', fontSize: '0.85rem' }}>Loading…</p> :
