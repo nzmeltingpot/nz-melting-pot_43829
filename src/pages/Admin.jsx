@@ -1095,7 +1095,7 @@ export default function Admin() {
       }
 
       const columns = [
-        { header: 'Booking Reference', key: 'unique_code' },
+        { header: 'Booking Reference', key: 'booking_ref' },
         { header: 'Buyer Name', key: 'buyer_name' },
         { header: 'Email', key: 'buyer_email' },
         { header: 'Phone', key: 'buyer_phone' },

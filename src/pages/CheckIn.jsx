@@ -280,9 +280,11 @@ export default function CheckIn() {
       const isAudience = code.startsWith('AUD26');
       const lookupTable = isAudience ? BOOKINGS_TABLE_ID : TABLE_ID;
 
+      // Audience bookings use 'booking_ref'; submissions use 'unique_code'
+      const filterField = isAudience ? 'booking_ref' : 'unique_code';
       const { data, error } = await window.ezsite.apis.tablePage(lookupTable, {
         PageNo: 1, PageSize: 5,
-        Filters: [{ Name: 'unique_code', Op: 'Equal', Value: code }]
+        Filters: [{ Name: filterField, Op: 'Equal', Value: code }]
       });
 
       if (error || !data?.List?.length) {
