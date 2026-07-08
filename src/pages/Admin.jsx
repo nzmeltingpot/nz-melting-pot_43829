@@ -278,7 +278,7 @@ export default function Admin() {
       const { data } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
         PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false
       });
-      setSubsLive((data?.List || []).filter(r => !String(r.unique_code || '').startsWith('HON26')));
+      setSubsLive((data?.List || []).filter(r => /^TSC26\d/.test(r.unique_code || '')));
     } catch {}
     setLoadingSubsLive(false);
     setLoadingAudLive(true);
@@ -359,10 +359,10 @@ export default function Admin() {
   const loadDashboard = useCallback(async () => {
     setLoadingDashboard(true);
     try {
-      // Fetch submissions (recent 5 + total count)
+      // Fetch submissions (recent 20 so we can filter out HON26 and still get 5 real ones)
       const subRes = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
         PageNo: 1,
-        PageSize: 5,
+        PageSize: 20,
         OrderByField: 'id',
         IsAsc: false
       });
@@ -376,7 +376,9 @@ export default function Admin() {
       });
 
       if (!subRes.error && subRes.data?.List) {
-        setRecentSubmissions(subRes.data.List.slice(0, 5));
+        // Only show real participation entries in Recent Registrations (TSC26 + digits only)
+        const realSubs = subRes.data.List.filter(r => /^TSC26\d/.test(r.unique_code || ''));
+        setRecentSubmissions(realSubs.slice(0, 5));
         const totalSubs = subRes.data.VirtualCount || subRes.data.TotalCount || 0;
         const currentYear = new Date().getFullYear();
         const thisYearCount = subRes.data.List.filter((s) => {
@@ -1025,8 +1027,8 @@ export default function Admin() {
         return;
       }
 
-      // Filter to participation registrations only — exclude HON26 honour passes
-      const submissions = data.List.filter(r => !String(r.unique_code || '').startsWith('HON26'));
+      // Only export real participation registrations (TSC26 + digits) — excludes HON26 and test records
+      const submissions = data.List.filter(r => /^TSC26\d/.test(r.unique_code || ''));
       if (submissions.length === 0) {
         alert('No participation registrations found.');
         setExporting(false);
