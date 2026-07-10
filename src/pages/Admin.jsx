@@ -135,6 +135,8 @@ export default function Admin() {
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [pendingRecipients, setPendingRecipients] = useState([]);
   const isSendingRef = useRef(false); // idempotency guard — blocks re-entrant sends
+  const [selectedSubmissions, setSelectedSubmissions] = useState(new Set());
+  const [emailModalSource, setEmailModalSource] = useState('members');
 
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
@@ -694,6 +696,53 @@ export default function Admin() {
     );
   };
 
+  const toggleSubmissionSelection = (id) => {
+    setSelectedSubmissions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllSubmissions = () => {
+    if (selectedSubmissions.size > 0) {
+      setSelectedSubmissions(new Set());
+    } else {
+      setSelectedSubmissions(new Set(subsLive.filter(r => r.email).map(r => r.ID || r.id)));
+    }
+  };
+
+  const handleSendSubsEmail = async () => {
+    if (showSendConfirm || isSendingRef.current || sendingEmail) return;
+    if (selectedSubmissions.size === 0) {
+      setEmailResult({ success: false, message: 'No participants selected' });
+      return;
+    }
+    if (!emailSubject.trim()) {
+      setEmailResult({ success: false, message: 'Please enter a subject' });
+      return;
+    }
+    if (!emailBody.trim()) {
+      setEmailResult({ success: false, message: 'Please enter a message body' });
+      return;
+    }
+    const selected = subsLive.filter(r => selectedSubmissions.has(r.ID || r.id) && r.email);
+    const seen = new Set();
+    const recipients = [];
+    for (const r of selected) {
+      if (!seen.has(r.email.toLowerCase())) {
+        seen.add(r.email.toLowerCase());
+        recipients.push({ full_name: r.participant_name || '', email: r.email });
+      }
+    }
+    if (recipients.length === 0) {
+      setEmailResult({ success: false, message: 'None of the selected participants have an email address' });
+      return;
+    }
+    setPendingRecipients(recipients);
+    setShowSendConfirm(true);
+  };
+
   // Step 1: validate, load recipients, show confirmation dialog
   const handleSendEmail = async () => {
     // Block if a confirm dialog is already open or a send is in-flight
@@ -883,6 +932,7 @@ export default function Admin() {
         setEmailSubject('');
         setEmailBody('');
         setSelectedMembers(new Set());
+        setSelectedSubmissions(new Set());
         setEmailResult(null);
       }, 2000);
     } else if (successCount > 0) {
@@ -1554,6 +1604,13 @@ export default function Admin() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
                 {exporting ? 'Exporting…' : 'Download Participation CSV'}
               </button>
+              {selectedSubmissions.size > 0 && (
+                <button onClick={() => { setEmailModalSource('submissions'); setEmailResult(null); setShowEmailModal(true); }}
+                  style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 20px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#1d4ed8,#3b82f6)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                  Send Email ({selectedSubmissions.size})
+                </button>
+              )}
               <button onClick={loadSubmissionsLive} disabled={loadingSubsLive} style={{ background: 'none', border: 'none', color: '#7B1E2D', fontWeight: 600, fontSize: '0.85rem', cursor: loadingSubsLive ? 'default' : 'pointer', padding: 0 }}>
                 {loadingSubsLive ? 'Loading…' : 'Refresh ↺'}
               </button>
@@ -1568,24 +1625,36 @@ export default function Admin() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                   <thead>
                     <tr>
+                      <th style={{ padding: '8px', borderBottom: '2px solid #e6ddd3', width: 32 }}>
+                        <input type="checkbox"
+                          checked={selectedSubmissions.size > 0 && subsLive.filter(r => r.email).every(r => selectedSubmissions.has(r.ID || r.id))}
+                          onChange={toggleAllSubmissions}
+                          title="Select all" />
+                      </th>
                       {['Code', 'Name', 'Category', 'Checked In'].map(h => (
                         <th key={h} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #e6ddd3', color: '#3D342E', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {subsLive.map(r => (
-                      <tr key={r.ID || r.id}>
-                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', fontFamily: 'monospace', color: '#7B1E2D', fontWeight: 700 }}>{r.unique_code}</td>
-                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>{r.participant_name}</td>
-                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', color: '#666' }}>{r.category}</td>
-                        <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>
-                          {(r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
-                            ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {r.checked_in_at ? formatDate(r.checked_in_at) : ''}</span>
-                            : <span style={{ color: '#9ca3af' }}>—</span>}
-                        </td>
-                      </tr>
-                    ))}
+                    {subsLive.map(r => {
+                      const rid = r.ID || r.id;
+                      return (
+                        <tr key={rid} style={{ background: selectedSubmissions.has(rid) ? '#fef9ee' : 'transparent' }}>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>
+                            {r.email && <input type="checkbox" checked={selectedSubmissions.has(rid)} onChange={() => toggleSubmissionSelection(rid)} />}
+                          </td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', fontFamily: 'monospace', color: '#7B1E2D', fontWeight: 700 }}>{r.unique_code}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>{r.participant_name}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8', color: '#666' }}>{r.category}</td>
+                          <td style={{ padding: '7px 8px', borderBottom: '1px solid #f0ece8' }}>
+                            {(r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
+                              ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {r.checked_in_at ? formatDate(r.checked_in_at) : ''}</span>
+                              : <span style={{ color: '#9ca3af' }}>—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1665,7 +1734,7 @@ export default function Admin() {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 {selectedMembers.size > 0 &&
               <button
-                onClick={() => setShowEmailModal(true)}
+                onClick={() => { setEmailModalSource('members'); setEmailResult(null); setShowEmailModal(true); }}
                 style={{
                   ...styles.primaryBtn,
                   width: 'auto',
@@ -2239,12 +2308,13 @@ export default function Admin() {
                 <div style={styles.modal}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1E1915' }}>
-                      ✉️ Send Email to Members
+                      ✉️ {emailModalSource === 'submissions' ? 'Send Email to Participants' : 'Send Email to Members'}
                     </h3>
                     <button
                   onClick={() => {
                     setShowEmailModal(false);
                     setEmailResult(null);
+                    if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
                   }}
                   style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>
 
@@ -2277,8 +2347,8 @@ export default function Admin() {
                   fontWeight: 600,
                   fontSize: '0.75rem',
                   marginRight: 6
-                }}>{selectedMembers.size} selected</span>
-                    {membersGroupFilter !== 'all' &&
+                }}>{emailModalSource === 'submissions' ? selectedSubmissions.size : selectedMembers.size} selected</span>
+                    {emailModalSource === 'members' && membersGroupFilter !== 'all' &&
                 <span style={{
                   display: 'inline-block',
                   padding: '2px 8px',
@@ -2290,7 +2360,9 @@ export default function Admin() {
                   marginRight: 6
                 }}>Group {membersGroupFilter} only</span>
                 }
-                    Will send to all selected active members across all pages (unsubscribed members are automatically excluded).
+                    {emailModalSource === 'submissions'
+                      ? 'Will send to all selected participants who have an email address (duplicates excluded).'
+                      : 'Will send to all selected active members across all pages (unsubscribed members are automatically excluded).'}
                     <br />
                     <span style={{ color: '#888', fontSize: '0.8rem' }}>Tip: Use {'{name}'} to personalize. Unsubscribe link is auto-added to all emails.</span>
                   </p>
@@ -2353,6 +2425,7 @@ export default function Admin() {
                   onClick={() => {
                     setShowEmailModal(false);
                     setEmailResult(null);
+                    if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
                   }}
                   style={{
                     padding: '10px 20px',
@@ -2368,7 +2441,7 @@ export default function Admin() {
                       Cancel
                     </button>
                     <button
-                  onClick={handleSendEmail}
+                  onClick={emailModalSource === 'submissions' ? handleSendSubsEmail : handleSendEmail}
                   disabled={sendingEmail || !emailSubject.trim() || !emailBody.trim()}
                   style={{
                     ...styles.primaryBtn,
