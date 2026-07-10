@@ -107,6 +107,9 @@ export default function Admin() {
   const [loadingAudLive, setLoadingAudLive] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
+  const [syncPreview, setSyncPreview] = useState(null);
+  const [syncRunning, setSyncRunning] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
 
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -741,6 +744,95 @@ export default function Admin() {
     }
     setPendingRecipients(recipients);
     setShowSendConfirm(true);
+  };
+
+  const GROUP_B_CAP = 290;
+
+  const runSyncAudit = async () => {
+    setSyncRunning(true);
+    setSyncPreview(null);
+    setSyncResult(null);
+    try {
+      // 1. Fetch all existing members to build email set + count Group B
+      const existingEmails = new Set();
+      let groupBCount = 0;
+      let page = 1;
+      while (true) {
+        const { data } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, { PageNo: page, PageSize: 1000, OrderByField: 'ID', IsAsc: true });
+        if (!data?.List?.length) break;
+        data.List.forEach(m => {
+          if (m.email) existingEmails.add(m.email.toLowerCase().trim());
+          if ((m.member_group || '').toUpperCase() === 'B') groupBCount++;
+        });
+        if (data.List.length < 1000) break;
+        page++;
+      }
+
+      // 2. Fetch participants (TSC26xxx)
+      const { data: subData } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, { PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false });
+      const participants = (subData?.List || [])
+        .filter(r => /^TSC26\d/.test(r.unique_code || '') && r.email)
+        .map(r => ({ name: r.participant_name || '', email: r.email.trim(), source: 'Participant' }));
+
+      // 3. Fetch audience bookings
+      const { data: audData } = await window.ezsite.apis.tablePage(BOOKINGS_TABLE_ID, { PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false });
+      const audience = (audData?.List || [])
+        .filter(r => r.buyer_email)
+        .map(r => ({ name: r.buyer_name || '', email: r.buyer_email.trim(), source: 'Audience' }));
+
+      // 4. Fetch honour passes
+      const { data: passData } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
+        PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false,
+        Filters: [{ Name: 'category', Op: 'Equal', Value: 'honour_pass' }]
+      });
+      const passes = (passData?.List || [])
+        .filter(r => r.email)
+        .map(r => ({ name: r.participant_name || '', email: r.email.trim(), source: 'Honour Pass' }));
+
+      // 5. Combine, dedup across sources (first occurrence wins)
+      const all = [...participants, ...audience, ...passes];
+      const seenKeys = new Set();
+      const candidates = [];
+      for (const p of all) {
+        const key = p.email.toLowerCase();
+        if (!seenKeys.has(key)) { seenKeys.add(key); candidates.push({ ...p, emailKey: key }); }
+      }
+
+      // 6. Split: already a member vs new
+      const alreadyMembers = candidates.filter(p => existingEmails.has(p.emailKey));
+      const toAdd = candidates.filter(p => !existingEmails.has(p.emailKey));
+
+      // 7. Cap new additions at Group B limit
+      const available = Math.max(0, GROUP_B_CAP - groupBCount);
+      const willAdd = toAdd.slice(0, available);
+      const overCap = toAdd.slice(available);
+
+      setSyncPreview({ willAdd, alreadyMembers, overCap, groupBCount, available, totalCandidates: candidates.length });
+    } catch (err) {
+      setSyncPreview({ error: err.message || 'Audit failed' });
+    }
+    setSyncRunning(false);
+  };
+
+  const executeSyncToMembers = async () => {
+    if (!syncPreview?.willAdd?.length) return;
+    setSyncRunning(true);
+    let added = 0;
+    let failed = 0;
+    for (const person of syncPreview.willAdd) {
+      try {
+        const { error } = await window.ezsite.apis.tableCreate(MEMBERS_TABLE_ID, {
+          full_name: person.name,
+          email: person.email,
+          status: 'active',
+          member_group: 'B'
+        });
+        if (error) failed++; else added++;
+      } catch { failed++; }
+    }
+    setSyncResult({ added, failed });
+    setSyncPreview(null);
+    setSyncRunning(false);
   };
 
   // Step 1: validate, load recipients, show confirmation dialog
@@ -1710,6 +1802,104 @@ export default function Admin() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+
+          {/* ── 3. Sync to Mailing List ── */}
+          <div style={{ padding: '20px 24px', background: '#fefce8', borderRadius: 12, border: '1px solid #fde68a' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: '1.3rem' }}>🔄</span>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1E1915' }}>Sync to Mailing List</h3>
+              <span style={{ marginLeft: 'auto', background: '#92400e', color: '#fff', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '1px', padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase' }}>Group B</span>
+            </div>
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 14 }}>
+              Audit all three sources (participants, audience, honour passes) and add new emails to Members as Group B.
+              Existing members are never duplicated. Group B is capped at {GROUP_B_CAP}.
+            </p>
+
+            {syncResult && (
+              <div style={{ padding: '12px 16px', marginBottom: 14, borderRadius: 8, background: syncResult.failed === 0 ? '#dcfce7' : '#fef2f2', border: `1px solid ${syncResult.failed === 0 ? '#86efac' : '#fecaca'}`, color: syncResult.failed === 0 ? '#166534' : '#991b1b', fontSize: '0.9rem' }}>
+                {syncResult.failed === 0
+                  ? `Done — ${syncResult.added} new member${syncResult.added !== 1 ? 's' : ''} added to Group B.`
+                  : `Added ${syncResult.added}, failed ${syncResult.failed}. Check browser console for details.`}
+                <button onClick={() => setSyncResult(null)} style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>×</button>
+              </div>
+            )}
+
+            {!syncPreview && !syncResult && (
+              <button onClick={runSyncAudit} disabled={syncRunning}
+                style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#92400e,#b45309)', opacity: syncRunning ? 0.6 : 1, cursor: syncRunning ? 'not-allowed' : 'pointer' }}>
+                {syncRunning ? 'Auditing…' : '🔍 Run Audit'}
+              </button>
+            )}
+
+            {syncPreview && !syncPreview.error && (
+              <div>
+                {/* Summary chips */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {[
+                    { label: 'Will be added', count: syncPreview.willAdd.length, bg: '#dcfce7', color: '#166534' },
+                    { label: 'Already members', count: syncPreview.alreadyMembers.length, bg: '#e0f2fe', color: '#0369a1' },
+                    { label: 'Over cap (skipped)', count: syncPreview.overCap.length, bg: '#fef2f2', color: '#991b1b' },
+                    { label: `Group B now`, count: `${syncPreview.groupBCount} / ${GROUP_B_CAP}`, bg: '#f5f3ff', color: '#6d28d9' },
+                  ].map(c => (
+                    <span key={c.label} style={{ padding: '4px 10px', borderRadius: 6, background: c.bg, color: c.color, fontSize: '0.78rem', fontWeight: 700 }}>
+                      {c.label}: <strong>{c.count}</strong>
+                    </span>
+                  ))}
+                </div>
+
+                {syncPreview.willAdd.length > 0 && (
+                  <div style={{ overflowX: 'auto', marginBottom: 14 }}>
+                    <div style={{ fontSize: '0.78rem', color: '#666', marginBottom: 6, fontWeight: 600 }}>Will be added to Group B:</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                      <thead>
+                        <tr>
+                          {['Name', 'Email', 'Source'].map(h => (
+                            <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '2px solid #fde68a', color: '#3D342E', fontWeight: 700, fontSize: '0.72rem', textTransform: 'uppercase' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {syncPreview.willAdd.map((p, i) => (
+                          <tr key={i} style={{ background: i % 2 === 0 ? '#fffbeb' : '#fefce8' }}>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid #fde68a' }}>{p.name || '—'}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid #fde68a', fontFamily: 'monospace', fontSize: '0.75rem' }}>{p.email}</td>
+                            <td style={{ padding: '5px 8px', borderBottom: '1px solid #fde68a', color: '#666' }}>{p.source}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {syncPreview.overCap.length > 0 && (
+                  <div style={{ padding: '10px 14px', marginBottom: 14, borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca', fontSize: '0.82rem', color: '#991b1b' }}>
+                    <strong>{syncPreview.overCap.length} person{syncPreview.overCap.length !== 1 ? 's' : ''} could not be added</strong> — Group B would exceed the {GROUP_B_CAP} cap.
+                    You can raise the cap in the code, or clean up existing Group B members first.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {syncPreview.willAdd.length > 0 && (
+                    <button onClick={executeSyncToMembers} disabled={syncRunning}
+                      style={{ ...styles.primaryBtn, width: 'auto', padding: '10px 24px', display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg,#166534,#16a34a)', opacity: syncRunning ? 0.6 : 1, cursor: syncRunning ? 'not-allowed' : 'pointer' }}>
+                      {syncRunning ? 'Adding…' : `Confirm — Add ${syncPreview.willAdd.length} to Members`}
+                    </button>
+                  )}
+                  <button onClick={() => { setSyncPreview(null); setSyncResult(null); }} disabled={syncRunning}
+                    style={{ padding: '10px 20px', background: 'transparent', border: '1.5px solid #fde68a', borderRadius: 8, color: '#92400e', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {syncPreview?.error && (
+              <div style={{ padding: '12px 16px', borderRadius: 8, background: '#fef2f2', color: '#991b1b', fontSize: '0.85rem' }}>
+                Error: {syncPreview.error}
+                <button onClick={() => setSyncPreview(null)} style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}>×</button>
               </div>
             )}
           </div>
