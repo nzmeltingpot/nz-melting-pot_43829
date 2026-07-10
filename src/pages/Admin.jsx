@@ -2302,175 +2302,169 @@ export default function Admin() {
               </div>
           }
 
-            {/* Email Modal */}
-            {showEmailModal &&
-          <div style={styles.modalOverlay}>
-                <div style={styles.modal}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1E1915' }}>
-                      ✉️ {emailModalSource === 'submissions' ? 'Send Email to Participants' : 'Send Email to Members'}
-                    </h3>
-                    <button
-                  onClick={() => {
-                    setShowEmailModal(false);
-                    setEmailResult(null);
-                    if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
-                  }}
-                  style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>
-
-                      ×
-                    </button>
-                  </div>
-
-                  {/* Resend Setup Info */}
-                  <div style={{
-                padding: '12px 14px',
-                marginBottom: 16,
-                borderRadius: 8,
-                background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
-                border: '1px solid #bae6fd',
-                fontSize: '0.8rem',
-                color: '#0369a1'
-              }}>
-                    <strong style={{ display: 'block', marginBottom: 4 }}>📨 Email Service (Brevo — bulk newsletters)</strong>
-                    Newsletters are sent via Brevo. Configure <code>BREVO_API_KEY</code> in your Ezsite Env Vars panel.
-                    Free tier: 300 emails/day. Single transactional emails (form submissions, payment confirmations) still use Resend.
-                  </div>
-
-                  <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
-                    <span style={{
-                  display: 'inline-block',
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  background: '#dcfce7',
-                  color: '#166534',
-                  fontWeight: 600,
-                  fontSize: '0.75rem',
-                  marginRight: 6
-                }}>{emailModalSource === 'submissions' ? selectedSubmissions.size : selectedMembers.size} selected</span>
-                    {emailModalSource === 'members' && membersGroupFilter !== 'all' &&
-                <span style={{
-                  display: 'inline-block',
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                  background: membersGroupFilter === 'B' ? '#eff6ff' : '#fef9ee',
-                  color: membersGroupFilter === 'B' ? '#1d4ed8' : '#92400e',
-                  fontWeight: 600,
-                  fontSize: '0.75rem',
-                  marginRight: 6
-                }}>Group {membersGroupFilter} only</span>
-                }
-                    {emailModalSource === 'submissions'
-                      ? 'Will send to all selected participants who have an email address (duplicates excluded).'
-                      : 'Will send to all selected active members across all pages (unsubscribed members are automatically excluded).'}
-                    <br />
-                    <span style={{ color: '#888', fontSize: '0.8rem' }}>Tip: Use {'{name}'} to personalize. Unsubscribe link is auto-added to all emails.</span>
-                  </p>
-
-                  {emailResult &&
-              <div style={{
-                padding: '12px 16px',
-                marginBottom: 16,
-                borderRadius: 8,
-                background: emailResult.success ? '#dcfce7' : '#fef2f2',
-                border: `1px solid ${emailResult.success ? '#86efac' : '#fecaca'}`,
-                color: emailResult.success ? '#166534' : '#991b1b',
-                fontSize: '0.9rem'
-              }}>
-                      {emailResult.message}
-                    </div>
-              }
-
-                  {sendingEmail && sendProgress &&
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#555', marginBottom: 6 }}>
-                  <span>Sending batch {sendProgress.batch} of {sendProgress.batches}…</span>
-                  <span>{sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''} / {sendProgress.total} total</span>
-                </div>
-                <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    borderRadius: 4,
-                    background: 'linear-gradient(90deg, #1d4ed8, #3b82f6)',
-                    width: `${Math.round((sendProgress.sent + sendProgress.failed) / sendProgress.total * 100)}%`,
-                    transition: 'width 0.4s ease'
-                  }} />
-                </div>
-              </div>
-              }
-
-                  <div style={{ marginBottom: 16 }}>
-                    <label style={styles.label}>Subject</label>
-                    <input
-                  type="text"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder="Enter email subject..."
-                  style={styles.input} />
-
-                  </div>
-
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={styles.label}>Message</label>
-                    <textarea
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Enter your message here...&#10;&#10;Use {name} to insert the member's name."
-                  style={{ ...styles.input, minHeight: 180, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
-
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-                    <button
-                  onClick={() => {
-                    setShowEmailModal(false);
-                    setEmailResult(null);
-                    if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
-                  }}
-                  style={{
-                    padding: '10px 20px',
-                    background: 'transparent',
-                    border: '1.5px solid #E6DDD3',
-                    borderRadius: 8,
-                    color: '#666',
-                    fontSize: '0.9rem',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}>
-
-                      Cancel
-                    </button>
-                    <button
-                  onClick={emailModalSource === 'submissions' ? handleSendSubsEmail : handleSendEmail}
-                  disabled={sendingEmail || !emailSubject.trim() || !emailBody.trim()}
-                  style={{
-                    ...styles.primaryBtn,
-                    width: 'auto',
-                    padding: '10px 24px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)',
-                    opacity: sendingEmail || !emailSubject.trim() || !emailBody.trim() ? 0.6 : 1
-                  }}>
-
-                      {sendingEmail ?
-                  <>Sending...</> :
-
-                  <>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="22" y1="2" x2="11" y2="13" />
-                            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                          </svg>
-                          Send Email
-                        </>
-                  }
-                    </button>
-                  </div>
-                </div>
-              </div>
-          }
           </div>
+        }
+
+        {/* Email Modal — rendered outside all tab conditionals so it works from any tab */}
+        {showEmailModal &&
+        <div style={styles.modalOverlay}>
+              <div style={styles.modal}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1E1915' }}>
+                    ✉️ {emailModalSource === 'submissions' ? 'Send Email to Participants' : 'Send Email to Members'}
+                  </h3>
+                  <button
+                onClick={() => {
+                  setShowEmailModal(false);
+                  setEmailResult(null);
+                  if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
+                }}
+                style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>
+                    ×
+                  </button>
+                </div>
+
+                {/* Brevo Info */}
+                <div style={{
+              padding: '12px 14px',
+              marginBottom: 16,
+              borderRadius: 8,
+              background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
+              border: '1px solid #bae6fd',
+              fontSize: '0.8rem',
+              color: '#0369a1'
+            }}>
+                  <strong style={{ display: 'block', marginBottom: 4 }}>📨 Email Service (Brevo — bulk newsletters)</strong>
+                  Newsletters are sent via Brevo. Configure <code>BREVO_API_KEY</code> in your Ezsite Env Vars panel.
+                  Free tier: 300 emails/day. Single transactional emails (form submissions, payment confirmations) still use Resend.
+                </div>
+
+                <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 16 }}>
+                  <span style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: '#dcfce7',
+                color: '#166534',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+                marginRight: 6
+              }}>{emailModalSource === 'submissions' ? selectedSubmissions.size : selectedMembers.size} selected</span>
+                  {emailModalSource === 'members' && membersGroupFilter !== 'all' &&
+              <span style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: membersGroupFilter === 'B' ? '#eff6ff' : '#fef9ee',
+                color: membersGroupFilter === 'B' ? '#1d4ed8' : '#92400e',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+                marginRight: 6
+              }}>Group {membersGroupFilter} only</span>
+              }
+                  {emailModalSource === 'submissions'
+                    ? 'Will send to all selected participants who have an email address (duplicates excluded).'
+                    : 'Will send to all selected active members across all pages (unsubscribed members are automatically excluded).'}
+                  <br />
+                  <span style={{ color: '#888', fontSize: '0.8rem' }}>Tip: Use {'{name}'} to personalize. Unsubscribe link is auto-added to all emails.</span>
+                </p>
+
+                {emailResult &&
+            <div style={{
+              padding: '12px 16px',
+              marginBottom: 16,
+              borderRadius: 8,
+              background: emailResult.success ? '#dcfce7' : '#fef2f2',
+              border: `1px solid ${emailResult.success ? '#86efac' : '#fecaca'}`,
+              color: emailResult.success ? '#166534' : '#991b1b',
+              fontSize: '0.9rem'
+            }}>
+                    {emailResult.message}
+                  </div>
+            }
+
+                {sendingEmail && sendProgress &&
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#555', marginBottom: 6 }}>
+                <span>Sending batch {sendProgress.batch} of {sendProgress.batches}…</span>
+                <span>{sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''} / {sendProgress.total} total</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 4, background: '#e5e7eb', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  borderRadius: 4,
+                  background: 'linear-gradient(90deg, #1d4ed8, #3b82f6)',
+                  width: `${Math.round((sendProgress.sent + sendProgress.failed) / sendProgress.total * 100)}%`,
+                  transition: 'width 0.4s ease'
+                }} />
+              </div>
+            </div>
+            }
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={styles.label}>Subject</label>
+                  <input
+                type="text"
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Enter email subject..."
+                style={styles.input} />
+
+                </div>
+
+                <div style={{ marginBottom: 20 }}>
+                  <label style={styles.label}>Message</label>
+                  <textarea
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                placeholder="Enter your message here...&#10;&#10;Use {name} to insert the member's name."
+                style={{ ...styles.input, minHeight: 180, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
+
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+                  <button
+                onClick={() => {
+                  setShowEmailModal(false);
+                  setEmailResult(null);
+                  if (emailModalSource === 'submissions') setSelectedSubmissions(new Set());
+                }}
+                style={{
+                  padding: '10px 20px',
+                  background: 'transparent',
+                  border: '1.5px solid #E6DDD3',
+                  borderRadius: 8,
+                  color: '#666',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}>
+                    Cancel
+                  </button>
+                  <button
+                onClick={emailModalSource === 'submissions' ? handleSendSubsEmail : handleSendEmail}
+                disabled={sendingEmail || !emailSubject.trim() || !emailBody.trim()}
+                style={{
+                  ...styles.primaryBtn,
+                  width: 'auto',
+                  padding: '10px 24px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: 'linear-gradient(135deg, #1d4ed8, #3b82f6)',
+                  opacity: sendingEmail || !emailSubject.trim() || !emailBody.trim() ? 0.6 : 1
+                }}>
+                    {sendingEmail ? <>Sending...</> : <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13" />
+                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                      </svg>
+                      Send Email
+                    </>}
+                  </button>
+                </div>
+              </div>
+            </div>
         }
 
         {/* API Keys Tab */}
