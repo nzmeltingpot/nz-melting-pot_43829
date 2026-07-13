@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { generateUnsubscribeLink, generateUpdateDetailsLink, generateSubscribeLink, generateNewsletterEmail } from '../utils/emailTemplates';
 import { sendBulkEmail } from '../utils/brevoClient';
 import HonourPassesTab from '../components/HonourPassesTab';
+import InvoiceTab from '../components/InvoiceTab';
 
 /**
  * Helper: parse a stored "from" string like
@@ -1602,6 +1603,12 @@ export default function Admin() {
 
             🗂️ Files
           </button>
+          <button
+            onClick={() => setActiveTab('invoices')}
+            style={activeTab === 'invoices' ? styles.tabActive : styles.tab}>
+
+            🧾 Invoices
+          </button>
         </div>
 
         {/* Dashboard Tab */}
@@ -2795,6 +2802,9 @@ export default function Admin() {
 
         {/* Passes Tab */}
         {activeTab === 'passes' && <HonourPassesTab />}
+
+        {/* Invoices Tab */}
+        {activeTab === 'invoices' && <InvoiceTab />}
 
         {/* Files Tab */}
         {activeTab === 'files' &&
