@@ -110,6 +110,8 @@ export default function Admin() {
   const [syncPreview, setSyncPreview] = useState(null);
   const [syncRunning, setSyncRunning] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [groupCounts, setGroupCounts] = useState({ all: 0, A: 0, B: 0 });
+  const [purging, setPurging] = useState(false);
 
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -354,11 +356,30 @@ export default function Admin() {
     setLoadingMembers(false);
   }, [membersPageSize]);
 
+  const loadGroupCounts = useCallback(async () => {
+    if (!window.ezsite?.apis?.tablePage) return;
+    try {
+      const fetchCount = async (filters) => {
+        const { data } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, {
+          PageNo: 1, PageSize: 1, OrderByField: 'ID', IsAsc: true, Filters: filters
+        });
+        return data?.VirtualCount || data?.TotalCount || 0;
+      };
+      const [all, A, B] = await Promise.all([
+        fetchCount([]),
+        fetchCount([{ Name: 'member_group', Op: 'Equal', Value: 'A' }]),
+        fetchCount([{ Name: 'member_group', Op: 'Equal', Value: 'B' }]),
+      ]);
+      setGroupCounts({ all, A, B });
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (user && activeTab === 'members') {
       loadMembers(1, membersSearch, membersGroupFilter);
+      loadGroupCounts();
     }
-  }, [user, activeTab, loadMembers, membersSearch, membersGroupFilter]);
+  }, [user, activeTab, loadMembers, loadGroupCounts, membersSearch, membersGroupFilter]);
 
   // Dashboard data loader
   const loadDashboard = useCallback(async () => {
@@ -833,6 +854,48 @@ export default function Admin() {
     setSyncResult({ added, failed });
     setSyncPreview(null);
     setSyncRunning(false);
+    loadGroupCounts();
+  };
+
+  const purgeInactiveMembers = async () => {
+    setPurging(true);
+    try {
+      // Fetch all unsubscribed members across all pages
+      const toDelete = [];
+      let page = 1;
+      while (true) {
+        const { data } = await window.ezsite.apis.tablePage(MEMBERS_TABLE_ID, {
+          PageNo: page, PageSize: 1000, OrderByField: 'ID', IsAsc: true,
+          Filters: [{ Name: 'status', Op: 'Equal', Value: 'unsubscribed' }]
+        });
+        if (!data?.List?.length) break;
+        toDelete.push(...data.List);
+        if (data.List.length < 1000) break;
+        page++;
+      }
+      if (toDelete.length === 0) {
+        alert('No unsubscribed members to purge.');
+        setPurging(false);
+        return;
+      }
+      if (!confirm(`Permanently delete ${toDelete.length} unsubscribed member${toDelete.length !== 1 ? 's' : ''}? This cannot be undone.`)) {
+        setPurging(false);
+        return;
+      }
+      let deleted = 0;
+      for (const m of toDelete) {
+        try {
+          await window.ezsite.apis.tableDelete(MEMBERS_TABLE_ID, { ID: m.id || m.ID });
+          deleted++;
+        } catch {}
+      }
+      alert(`Purged ${deleted} unsubscribed member${deleted !== 1 ? 's' : ''}.`);
+      loadMembers(1, membersSearch, membersGroupFilter);
+      loadGroupCounts();
+    } catch (err) {
+      alert('Purge failed: ' + (err.message || 'Unknown error'));
+    }
+    setPurging(false);
   };
 
   // Step 1: validate, load recipients, show confirmation dialog
@@ -1962,6 +2025,26 @@ export default function Admin() {
                   Add Member
                 </button>
                 <button
+                onClick={purgeInactiveMembers}
+                disabled={purging}
+                title="Permanently delete all unsubscribed members"
+                style={{
+                  ...styles.primaryBtn,
+                  width: 'auto',
+                  padding: '8px 16px',
+                  fontSize: '0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: purging ? '#9ca3af' : 'linear-gradient(135deg, #991b1b, #dc2626)',
+                  cursor: purging ? 'not-allowed' : 'pointer'
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" />
+                  </svg>
+                  {purging ? 'Purging…' : 'Purge Unsubscribed'}
+                </button>
+                <button
                 onClick={() => handleRunDiagnostics(membersGroupFilter === 'B' ? 'B' : 'A')}
                 title="Check why Group members aren't receiving emails — detects Brevo blocklist issues"
                 style={{
@@ -2135,7 +2218,7 @@ export default function Admin() {
             {/* Group filter */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.85rem', color: '#666', fontWeight: 600 }}>Show:</span>
-              {[['all', 'All Members'], ['A', 'Group A (250)'], ['B', 'Group B (62)']].map(([val, label]) =>
+              {[['all', `All Members`], ['A', `Group A (${groupCounts.A})`], ['B', `Group B (${groupCounts.B})`]].map(([val, label]) =>
             <button
               key={val}
               onClick={() => {setMembersGroupFilter(val);setSelectedMembers(new Set());}}
