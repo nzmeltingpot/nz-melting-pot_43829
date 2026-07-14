@@ -106,6 +106,7 @@ export default function Admin() {
   const [loadingSubsLive, setLoadingSubsLive] = useState(false);
   const [audLive, setAudLive] = useState([]);
   const [loadingAudLive, setLoadingAudLive] = useState(false);
+  const [honPasses, setHonPasses] = useState([]);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState(null);
   const [syncPreview, setSyncPreview] = useState(null);
@@ -286,7 +287,9 @@ export default function Admin() {
       const { data } = await window.ezsite.apis.tablePage(SUBMISSIONS_TABLE_ID, {
         PageNo: 1, PageSize: 1000, OrderByField: 'id', IsAsc: false
       });
-      setSubsLive((data?.List || []).filter(r => /^TSC26\d/.test(r.unique_code || '')));
+      const list = data?.List || [];
+      setSubsLive(list.filter(r => /^TSC26\d/.test(r.unique_code || '')));
+      setHonPasses(list.filter(r => /^HON26\d/.test(r.unique_code || '')));
     } catch {}
     setLoadingSubsLive(false);
     setLoadingAudLive(true);
@@ -1976,23 +1979,25 @@ export default function Admin() {
 
           {/* ── Ticket Sales Summary ── */}
           {(() => {
-            const totalTickets = audLive.reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
-            const totalOrders  = audLive.length;
-            const totalRevenue = totalTickets * 10;
-            const checkedIn    = audLive.filter(r => r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
-                                        .reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
+            const isCheckedIn = r => r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1;
+            const totalTickets   = audLive.reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
+            const totalRevenue   = totalTickets * 10;
+            const audArrivals    = audLive.filter(isCheckedIn).reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
+            const perfArrivals   = subsLive.filter(isCheckedIn).length;
+            const honArrivals    = honPasses.filter(isCheckedIn).length;
+            const totalArrivals  = audArrivals + perfArrivals + honArrivals;
             return (
               <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', borderRadius: 12, color: '#fff' }}>
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#a3d9c8', marginBottom: 16 }}>
-                  🎟️ Audience Ticket Sales — Live Total
+                  🎟️ Event Totals — Live
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 16 }}>
                   {[
-                    { label: 'Tickets Sold',   value: totalTickets, sub: 'individual tickets' },
-                    { label: 'Booking Orders', value: totalOrders,   sub: 'unique bookings'   },
-                    { label: 'Revenue (NZD)',  value: `$${totalRevenue.toLocaleString()}`, sub: 'at $10 per ticket' },
-                    { label: 'Gate Arrivals',  value: checkedIn,    sub: 'tickets checked in' },
-                    { label: 'Performers',     value: subsLive.length, sub: 'registrations'  },
+                    { label: 'Tickets Sold',    value: totalTickets,      sub: 'audience tickets'       },
+                    { label: 'Honour Passes',   value: honPasses.length,  sub: 'issued'                 },
+                    { label: 'Revenue (NZD)',   value: `$${totalRevenue.toLocaleString()}`, sub: 'at $10 per ticket' },
+                    { label: 'Gate Arrivals',   value: totalArrivals,     sub: `${audArrivals} aud · ${perfArrivals} perf · ${honArrivals} hon` },
+                    { label: 'Performers',      value: subsLive.length,   sub: 'registrations'          },
                   ].map(({ label, value, sub }) => (
                     <div key={label} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.8rem', fontWeight: 800, lineHeight: 1, color: '#fff' }}>{value}</div>
