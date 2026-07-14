@@ -1979,7 +1979,7 @@ export default function Admin() {
 
           {/* ── Ticket Sales Summary ── */}
           {(() => {
-            const isCheckedIn = r => r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1;
+            const isCheckedIn = r => !!r.checked_in && r.checked_in !== '0' && r.checked_in !== 'false';
             const totalTickets   = audLive.reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
             const totalRevenue   = totalTickets * 10;
             const audArrivals    = audLive.filter(isCheckedIn).reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);

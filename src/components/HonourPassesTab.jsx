@@ -214,6 +214,7 @@ export default function HonourPassesTab() {
   const [passes, setPasses]         = useState([]);
   const [loading, setLoading]       = useState(false);
   const [exportingPasses, setExportingPasses] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   const loadPasses = useCallback(async () => {
     if (!window.ezsite?.apis?.tablePage) return;
@@ -272,6 +273,18 @@ export default function HonourPassesTab() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } catch (err) { alert('Export failed: ' + (err.message || 'Unknown error')); }
     setExportingPasses(false);
+  };
+
+  const handleDelete = async (id, code, name) => {
+    if (!window.confirm(`Delete honour pass ${code} (${name})?\n\nThis cannot be undone.`)) return;
+    setDeletingId(id);
+    try {
+      await window.ezsite.apis.tableDelete(SUBMISSIONS_TABLE_ID, { ID: id });
+      loadPasses();
+    } catch (err) {
+      alert('Delete failed: ' + (err.message || 'Unknown error'));
+    }
+    setDeletingId(null);
   };
 
   const handleIssue = async () => {
@@ -452,7 +465,7 @@ export default function HonourPassesTab() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr>
-                  {['Code', 'Name', 'Role', 'Email', 'Issued', 'Scanned'].map((h) => (
+                  {['Code', 'Name', 'Role', 'Email', 'Issued', 'Scanned', ''].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 10px', borderBottom: '2px solid #E6DDD3', fontWeight: 700, color: '#3D342E', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{h}</th>
                   ))}
                 </tr>
@@ -475,6 +488,17 @@ export default function HonourPassesTab() {
                       {p.checked_in
                         ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {fmtCheckinTime(p.checked_in_at)}</span>
                         : <span style={{ color: '#9ca3af' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6', textAlign: 'right' }}>
+                      <button
+                        onClick={() => handleDelete(p.ID || p.id, p.unique_code, p.participant_name)}
+                        disabled={deletingId === (p.ID || p.id)}
+                        title="Delete pass"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d1d5db', fontSize: '1rem', padding: '2px 6px', borderRadius: 4, lineHeight: 1 }}
+                        onMouseEnter={e => e.currentTarget.style.color = '#dc2626'}
+                        onMouseLeave={e => e.currentTarget.style.color = '#d1d5db'}>
+                        {deletingId === (p.ID || p.id) ? '…' : '🗑'}
+                      </button>
                     </td>
                   </tr>
                 ))}
