@@ -215,6 +215,7 @@ export default function HonourPassesTab() {
   const [loading, setLoading]       = useState(false);
   const [exportingPasses, setExportingPasses] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [markingId, setMarkingId]   = useState(null);
 
   const loadPasses = useCallback(async () => {
     if (!window.ezsite?.apis?.tablePage) return;
@@ -273,6 +274,21 @@ export default function HonourPassesTab() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } catch (err) { alert('Export failed: ' + (err.message || 'Unknown error')); }
     setExportingPasses(false);
+  };
+
+  const handleMarkCheckedIn = async (id, code) => {
+    setMarkingId(id);
+    try {
+      await window.ezsite.apis.tableUpdate(SUBMISSIONS_TABLE_ID, {
+        ID: id,
+        checked_in: true,
+        checked_in_at: new Date().toISOString()
+      });
+      loadPasses();
+    } catch (err) {
+      alert('Mark check-in failed: ' + (err.message || 'Unknown error'));
+    }
+    setMarkingId(null);
   };
 
   const handleDelete = async (id, code, name) => {
@@ -487,7 +503,13 @@ export default function HonourPassesTab() {
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6' }}>
                       {p.checked_in
                         ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {fmtCheckinTime(p.checked_in_at)}</span>
-                        : <span style={{ color: '#9ca3af' }}>—</span>}
+                        : <button
+                            onClick={() => handleMarkCheckedIn(p.ID || p.id, p.unique_code)}
+                            disabled={markingId === (p.ID || p.id)}
+                            title="Mark as checked in"
+                            style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a', borderRadius: 6, padding: '3px 8px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            {markingId === (p.ID || p.id) ? '…' : '✓ Mark In'}
+                          </button>}
                     </td>
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6', textAlign: 'right' }}>
                       <button
