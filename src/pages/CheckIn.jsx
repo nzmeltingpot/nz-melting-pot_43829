@@ -313,13 +313,15 @@ export default function CheckIn() {
         return;
       }
 
-      // Mark as checked in
+      // Mark as checked in — localStorage is the source of truth for visual feedback
       saveLog(code, name);
-      await window.ezsite.apis.tableUpdate(lookupTable, {
-        ID: rec.ID || rec.id,
-        checked_in: true,
-        checked_in_at: new Date().toISOString()
-      });
+      try {
+        await window.ezsite.apis.tableUpdate(lookupTable, {
+          ID: rec.ID || rec.id,
+          checked_in: true,
+          checked_in_at: new Date().toISOString()
+        });
+      } catch { /* silent — visual feedback never depends on this */ }
 
       setScanState('ok');
       setScanInfo({
