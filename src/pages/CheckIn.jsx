@@ -315,13 +315,11 @@ export default function CheckIn() {
 
       // Mark as checked in
       saveLog(code, name);
-      try {
-        await window.ezsite.apis.tableUpdate(lookupTable, {
-          ID: rec.ID || rec.id,
-          checked_in: true,
-          checked_in_at: new Date().toISOString()
-        });
-      } catch {}
+      await window.ezsite.apis.tableUpdate(lookupTable, {
+        ID: rec.ID || rec.id,
+        checked_in: true,
+        checked_in_at: new Date().toISOString()
+      });
 
       setScanState('ok');
       setScanInfo({

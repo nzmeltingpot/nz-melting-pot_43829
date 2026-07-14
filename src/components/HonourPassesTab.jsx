@@ -279,12 +279,16 @@ export default function HonourPassesTab() {
   const handleMarkCheckedIn = async (id, code) => {
     setMarkingId(id);
     try {
-      await window.ezsite.apis.tableUpdate(SUBMISSIONS_TABLE_ID, {
+      const { error } = await window.ezsite.apis.tableUpdate(SUBMISSIONS_TABLE_ID, {
         ID: id,
         checked_in: true,
         checked_in_at: new Date().toISOString()
       });
-      loadPasses();
+      if (error) {
+        alert('Mark check-in failed: ' + (typeof error === 'string' ? error : JSON.stringify(error)));
+      } else {
+        loadPasses();
+      }
     } catch (err) {
       alert('Mark check-in failed: ' + (err.message || 'Unknown error'));
     }
