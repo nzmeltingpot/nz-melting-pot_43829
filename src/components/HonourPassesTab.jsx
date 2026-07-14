@@ -215,7 +215,6 @@ export default function HonourPassesTab() {
   const [loading, setLoading]       = useState(false);
   const [exportingPasses, setExportingPasses] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [markingId, setMarkingId]   = useState(null);
 
   const loadPasses = useCallback(async () => {
     if (!window.ezsite?.apis?.tablePage) return;
@@ -274,39 +273,6 @@ export default function HonourPassesTab() {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } catch (err) { alert('Export failed: ' + (err.message || 'Unknown error')); }
     setExportingPasses(false);
-  };
-
-  const handleMarkCheckedIn = async (id, code) => {
-    setMarkingId(id);
-    try {
-      const pass = passes.find(p => (p.ID || p.id) === id);
-      if (!pass) { alert('Refresh the list and try again.'); setMarkingId(null); return; }
-      const { error } = await window.ezsite.apis.tableUpdate(SUBMISSIONS_TABLE_ID, {
-        ID: id,
-        unique_code:          pass.unique_code,
-        participant_name:     pass.participant_name,
-        category:             pass.category,
-        performance_type:     pass.performance_type,
-        song_title:           pass.song_title || 'N/A',
-        email:                pass.email,
-        phone:                pass.phone || 'N/A',
-        num_performers:       pass.num_performers || 1,
-        total_fee:            pass.total_fee || 0,
-        status:               pass.status || 'paid',
-        submission_timestamp: pass.submission_timestamp,
-        year:                 pass.year || 2026,
-        checked_in:           true,
-        checked_in_at:        new Date().toISOString()
-      });
-      if (error) {
-        alert('Mark check-in failed: ' + (typeof error === 'string' ? error : JSON.stringify(error)));
-      } else {
-        loadPasses();
-      }
-    } catch (err) {
-      alert('Mark check-in failed: ' + (err.message || 'Unknown error'));
-    }
-    setMarkingId(null);
   };
 
   const handleDelete = async (id, code, name) => {
@@ -521,13 +487,7 @@ export default function HonourPassesTab() {
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6' }}>
                       {p.checked_in
                         ? <span style={{ color: '#16a34a', fontWeight: 700 }}>✅ {fmtCheckinTime(p.checked_in_at)}</span>
-                        : <button
-                            onClick={() => handleMarkCheckedIn(p.ID || p.id, p.unique_code)}
-                            disabled={markingId === (p.ID || p.id)}
-                            title="Mark as checked in"
-                            style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a', borderRadius: 6, padding: '3px 8px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            {markingId === (p.ID || p.id) ? '…' : '✓ Mark In'}
-                          </button>}
+                        : <span style={{ color: '#9ca3af' }}>—</span>}
                     </td>
                     <td style={{ padding: '10px', borderBottom: '1px solid #f3ede6', textAlign: 'right' }}>
                       <button
