@@ -279,10 +279,24 @@ export default function HonourPassesTab() {
   const handleMarkCheckedIn = async (id, code) => {
     setMarkingId(id);
     try {
+      const pass = passes.find(p => (p.ID || p.id) === id);
+      if (!pass) { alert('Refresh the list and try again.'); setMarkingId(null); return; }
       const { error } = await window.ezsite.apis.tableUpdate(SUBMISSIONS_TABLE_ID, {
         ID: id,
-        checked_in: true,
-        checked_in_at: new Date().toISOString()
+        unique_code:          pass.unique_code,
+        participant_name:     pass.participant_name,
+        category:             pass.category,
+        performance_type:     pass.performance_type,
+        song_title:           pass.song_title || 'N/A',
+        email:                pass.email,
+        phone:                pass.phone || 'N/A',
+        num_performers:       pass.num_performers || 1,
+        total_fee:            pass.total_fee || 0,
+        status:               pass.status || 'paid',
+        submission_timestamp: pass.submission_timestamp,
+        year:                 pass.year || 2026,
+        checked_in:           true,
+        checked_in_at:        new Date().toISOString()
       });
       if (error) {
         alert('Mark check-in failed: ' + (typeof error === 'string' ? error : JSON.stringify(error)));
