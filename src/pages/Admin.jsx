@@ -1974,6 +1974,37 @@ export default function Admin() {
             )}
           </div>
 
+          {/* ── Ticket Sales Summary ── */}
+          {(() => {
+            const totalTickets = audLive.reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
+            const totalOrders  = audLive.length;
+            const totalRevenue = totalTickets * 10;
+            const checkedIn    = audLive.filter(r => r.checked_in === true || r.checked_in === 'true' || r.checked_in === 1)
+                                        .reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
+            return (
+              <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', borderRadius: 12, color: '#fff' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#a3d9c8', marginBottom: 16 }}>
+                  🎟️ Audience Ticket Sales — Live Total
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 16 }}>
+                  {[
+                    { label: 'Tickets Sold',   value: totalTickets, sub: 'individual tickets' },
+                    { label: 'Booking Orders', value: totalOrders,   sub: 'unique bookings'   },
+                    { label: 'Revenue (NZD)',  value: `$${totalRevenue.toLocaleString()}`, sub: 'at $10 per ticket' },
+                    { label: 'Gate Arrivals',  value: checkedIn,    sub: 'tickets checked in' },
+                    { label: 'Performers',     value: subsLive.length, sub: 'registrations'  },
+                  ].map(({ label, value, sub }) => (
+                    <div key={label} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.8rem', fontWeight: 800, lineHeight: 1, color: '#fff' }}>{value}</div>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#c9a227', marginTop: 4, textTransform: 'uppercase', letterSpacing: '1px' }}>{label}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{sub}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
         </div>
         }
 
