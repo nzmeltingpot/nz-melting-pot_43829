@@ -1,7 +1,7 @@
 // Reads and writes environment variables using the database (app_secrets table)
 // Table ID 82489 stores key/value secret pairs
 
-const ALLOWED_KEYS = ["STRIPE_SECRET_KEY", "BREVO_API_KEY", "RESEND_API_KEY"];
+const ALLOWED_KEYS = ["STRIPE_SECRET_KEY", "BREVO_API_KEY", "RESEND_API_KEY", "SENDER_API_KEY"];
 const SECRETS_TABLE_ID = 82489;
 
 function maskValue(val) {

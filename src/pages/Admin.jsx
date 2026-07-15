@@ -121,7 +121,7 @@ export default function Admin() {
   const [envStatus, setEnvStatus] = useState(null);
   const [envLoading, setEnvLoading] = useState(false);
   const [envSaving, setEnvSaving] = useState({});
-  const [envValues, setEnvValues] = useState({ STRIPE_SECRET_KEY: '', BREVO_API_KEY: '' });
+  const [envValues, setEnvValues] = useState({ STRIPE_SECRET_KEY: '', BREVO_API_KEY: '', SENDER_API_KEY: '' });
   const [envMessages, setEnvMessages] = useState({});
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -2825,6 +2825,20 @@ export default function Admin() {
               saving={envSaving.BREVO_API_KEY}
               message={envMessages.BREVO_API_KEY}
               placeholder="xkeysib-…" />
+
+
+                {/* Sender.net */}
+                <ApiKeyField
+              label="Sender.net API Key"
+              keyName="SENDER_API_KEY"
+              description="Reserved for future newsletter sends via Sender.net (domain already registered). Not wired to any send flow yet — key is just stored ready for later. Get your key from sender.net → Integrations → API."
+              statusInfo={envStatus?.SENDER_API_KEY}
+              value={envValues.SENDER_API_KEY}
+              onChange={(v) => setEnvValues((p) => ({ ...p, SENDER_API_KEY: v }))}
+              onSave={() => handleSaveEnvVar('SENDER_API_KEY')}
+              saving={envSaving.SENDER_API_KEY}
+              message={envMessages.SENDER_API_KEY}
+              placeholder="sender-api-key…" />
 
 
                 <div style={{ padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: '0.82rem', color: '#15803d', lineHeight: 1.6 }}>
