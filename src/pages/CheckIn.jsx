@@ -27,6 +27,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import jsQR from 'jsqr';
 import usePageMeta from '../hooks/usePageMeta';
 
 /* ── Configuration ───────────────────────────────────────────────────── */
@@ -346,18 +347,16 @@ export default function CheckIn() {
     }
   }, [refreshCount]);
 
-  /* ── Scan loop — uses built-in BarcodeDetector (no library needed) ── */
+  /* ── Scan loop ──────────────────────────────────────────────────────
+     Uses native BarcodeDetector where available (Chrome/Edge/Android —
+     fastest). Falls back to jsQR (pure JS, draws each frame to an
+     offscreen canvas and decodes it) everywhere else — this is required
+     for iOS Safari, which has never implemented BarcodeDetector. ── */
   useEffect(() => {
     if (!camReady || !scanning) return;
 
-    // If BarcodeDetector isn't available, show manual entry instead
-    if (!detectorRef.current) {
-      setCamError('QR scanning not supported in this browser — use manual entry below.');
-      setScanning(false);
-      return;
-    }
-
     let active = true;
+    const useNative = !!detectorRef.current;
 
     const tick = async () => {
       if (!active) return;
@@ -367,9 +366,22 @@ export default function CheckIn() {
         return;
       }
       try {
-        const codes = await detectorRef.current.detect(video);
-        if (codes.length > 0 && active) {
-          processCode(codes[0].rawValue, true);
+        if (useNative) {
+          const codes = await detectorRef.current.detect(video);
+          if (codes.length > 0 && active) {
+            processCode(codes[0].rawValue, true);
+          }
+        } else {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+          if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const result = jsQR(imageData.data, imageData.width, imageData.height);
+          if (result?.data && active) {
+            processCode(result.data, true);
+          }
         }
       } catch {
         // detection errors are normal (blurry frame etc.) — just continue
