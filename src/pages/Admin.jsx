@@ -1979,13 +1979,12 @@ export default function Admin() {
 
           {/* ── Ticket Sales Summary ── */}
           {(() => {
-            const isCheckedIn = r => !!r.checked_in && r.checked_in !== '0' && r.checked_in !== 'false';
             const totalTickets   = audLive.reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
             const totalRevenue   = totalTickets * 10;
-            const audArrivals    = audLive.filter(isCheckedIn).reduce((sum, r) => sum + (Number(r.ticket_count) || 0), 0);
-            const perfArrivals   = subsLive.filter(isCheckedIn).length;
-            const honArrivals    = honPasses.filter(isCheckedIn).length;
-            const totalArrivals  = audArrivals + perfArrivals + honArrivals;
+            const participantCount = subsLive.reduce((sum, r) =>
+              sum + [r.participant_name, r.participant_2_name, r.participant_3_name, r.participant_4_name]
+                .filter(n => n && String(n).trim() !== '').length, 0);
+            const headcount = totalTickets + honPasses.length + participantCount;
             return (
               <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg,#0B5E4F,#0d7a66)', borderRadius: 12, color: '#fff' }}>
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '2px', textTransform: 'uppercase', color: '#a3d9c8', marginBottom: 16 }}>
@@ -1993,11 +1992,11 @@ export default function Admin() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 16 }}>
                   {[
-                    { label: 'Tickets Sold',    value: totalTickets,      sub: 'audience tickets'       },
-                    { label: 'Honour Passes',   value: honPasses.length,  sub: 'issued'                 },
+                    { label: 'Tickets Sold',    value: totalTickets,        sub: 'audience tickets'       },
+                    { label: 'Honour Passes',   value: honPasses.length,    sub: 'issued'                 },
                     { label: 'Revenue (NZD)',   value: `$${totalRevenue.toLocaleString()}`, sub: 'at $10 per ticket' },
-                    { label: 'Gate Arrivals',   value: totalArrivals,     sub: `${audArrivals} aud · ${perfArrivals} perf · ${honArrivals} hon` },
-                    { label: 'Performers',      value: subsLive.length,   sub: 'registrations'          },
+                    { label: 'Participants',    value: participantCount,    sub: `${subsLive.length} registrations` },
+                    { label: 'Headcount',       value: headcount,           sub: 'tickets + passes + participants' },
                   ].map(({ label, value, sub }) => (
                     <div key={label} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.8rem', fontWeight: 800, lineHeight: 1, color: '#fff' }}>{value}</div>
