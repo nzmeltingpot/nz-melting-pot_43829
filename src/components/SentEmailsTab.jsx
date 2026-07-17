@@ -115,7 +115,7 @@ export default function SentEmailsTab() {
 
       const resendSubject = `[Resend] ${campaign.subject || ''}`;
       const resendSentAt = new Date().toISOString();
-      const { data: logData, error: createErr } = await window.ezsite.apis.tableCreate(CAMPAIGN_LOG_TABLE_ID, {
+      const { error: createErr } = await window.ezsite.apis.tableCreate(CAMPAIGN_LOG_TABLE_ID, {
         subject: resendSubject,
         recipient_count: brevoRecipients.length,
         sent_count: 0,
@@ -126,7 +126,12 @@ export default function SentEmailsTab() {
         body_text: bodyTemplate
       });
       if (createErr) throw new Error(typeof createErr === 'string' ? createErr : 'Failed to create campaign log.');
-      const newId = logData?.ID || logData?.id || null;
+      // tableCreate's response doesn't reliably return the new row's ID —
+      // look it up instead (same fix as Admin.jsx executeSend).
+      const { data: lookup } = await window.ezsite.apis.tablePage(CAMPAIGN_LOG_TABLE_ID, {
+        PageNo: 1, PageSize: 1, OrderByField: 'id', IsAsc: false
+      });
+      const newId = lookup?.List?.[0]?.ID || lookup?.List?.[0]?.id || null;
 
       const result = await sendBulkEmail({
         from: fromObj,

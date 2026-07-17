@@ -1036,7 +1036,7 @@ export default function Admin() {
     let campaignLogId = null;
     const campaignSentAt = new Date().toISOString();
     try {
-      const { data: logData, error: createErr } = await window.ezsite.apis.tableCreate(82960, {
+      const { error: createErr } = await window.ezsite.apis.tableCreate(82960, {
         subject: emailSubject,
         recipient_count: recipients.length,
         sent_count: 0,
@@ -1049,7 +1049,13 @@ export default function Admin() {
       if (createErr) {
         console.warn('[sendBulkEmail] Failed to create campaign log:', createErr);
       } else {
-        campaignLogId = logData?.ID || logData?.id || null;
+        // tableCreate's response doesn't reliably return the new row's ID —
+        // look it up instead (matches the pattern already proven elsewhere
+        // in this app: tablePage results always carry a real ID/id).
+        const { data: lookup } = await window.ezsite.apis.tablePage(82960, {
+          PageNo: 1, PageSize: 1, OrderByField: 'id', IsAsc: false
+        });
+        campaignLogId = lookup?.List?.[0]?.ID || lookup?.List?.[0]?.id || null;
         console.log(`📨 [Brevo] Campaign log created, ID=${campaignLogId}`);
       }
     } catch (logErr) {
