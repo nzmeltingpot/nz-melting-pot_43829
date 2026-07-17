@@ -4,6 +4,7 @@ import { generateUnsubscribeLink, generateUpdateDetailsLink, generateSubscribeLi
 import { sendBulkEmail } from '../utils/brevoClient';
 import HonourPassesTab from '../components/HonourPassesTab';
 import InvoiceTab from '../components/InvoiceTab';
+import SentEmailsTab from '../components/SentEmailsTab';
 
 /**
  * Helper: parse a stored "from" string like
@@ -1033,18 +1034,24 @@ export default function Admin() {
 
     // Log campaign start to DB (audit trail)
     let campaignLogId = null;
+    const campaignSentAt = new Date().toISOString();
     try {
-      const { data: logData } = await window.ezsite.apis.tableCreate(82960, {
+      const { data: logData, error: createErr } = await window.ezsite.apis.tableCreate(82960, {
         subject: emailSubject,
         recipient_count: recipients.length,
         sent_count: 0,
         failed_count: 0,
         status: 'sending',
         error_summary: '',
-        sent_at: new Date().toISOString()
+        sent_at: campaignSentAt,
+        body_text: emailBody
       });
-      campaignLogId = logData?.ID || logData?.id || null;
-      console.log(`📨 [Brevo] Campaign log created, ID=${campaignLogId}`);
+      if (createErr) {
+        console.warn('[sendBulkEmail] Failed to create campaign log:', createErr);
+      } else {
+        campaignLogId = logData?.ID || logData?.id || null;
+        console.log(`📨 [Brevo] Campaign log created, ID=${campaignLogId}`);
+      }
     } catch (logErr) {
       console.warn('[sendBulkEmail] Failed to create campaign log:', logErr);
     }
@@ -1064,17 +1071,34 @@ export default function Admin() {
     const failCount = result.failed;
     const lastError = result.error || result.failures?.[0]?.error || null;
 
-    // Update campaign log with final counts
+    // Update campaign log with final counts + per-recipient outcome.
+    // Send the FULL record on update, not just changed fields — Ezsite's
+    // tableUpdate has been observed to silently reject partial payloads
+    // on other tables (see HonourPassesTab), and every historical row in
+    // this table was stuck at sent_count:0/status:'sending' as a result.
     if (campaignLogId) {
       try {
-        await window.ezsite.apis.tableUpdate(82960, {
+        const recipientsRecord = recipients.map((r) => {
+          const fail = result.failures?.find((f) => f.email.toLowerCase() === r.email.toLowerCase());
+          return { name: r.full_name || '', email: r.email, status: fail ? 'failed' : 'sent', error: fail?.error || null };
+        });
+        const { error: updateErr } = await window.ezsite.apis.tableUpdate(82960, {
           ID: campaignLogId,
+          subject: emailSubject,
+          recipient_count: recipients.length,
           sent_count: successCount,
           failed_count: failCount,
           status: failCount === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial',
-          error_summary: result.failures?.slice(0, 5).map((f) => `${f.email}: ${f.error}`).join('; ') || ''
+          error_summary: result.failures?.slice(0, 5).map((f) => `${f.email}: ${f.error}`).join('; ') || '',
+          sent_at: campaignSentAt,
+          body_text: emailBody,
+          recipients_json: JSON.stringify(recipientsRecord)
         });
-        console.log(`📨 [Brevo] Campaign log updated — sent: ${successCount}, failed: ${failCount}`);
+        if (updateErr) {
+          console.warn('[sendBulkEmail] Failed to update campaign log:', updateErr);
+        } else {
+          console.log(`📨 [Brevo] Campaign log updated — sent: ${successCount}, failed: ${failCount}`);
+        }
       } catch (logErr) {
         console.warn('[sendBulkEmail] Failed to update campaign log:', logErr);
       }
@@ -1611,6 +1635,12 @@ export default function Admin() {
             style={activeTab === 'invoices' ? styles.tabActive : styles.tab}>
 
             🧾 Invoices
+          </button>
+          <button
+            onClick={() => setActiveTab('sentEmails')}
+            style={activeTab === 'sentEmails' ? styles.tabActive : styles.tab}>
+
+            📧 Sent Emails
           </button>
         </div>
 
@@ -2854,6 +2884,9 @@ export default function Admin() {
 
         {/* Invoices Tab */}
         {activeTab === 'invoices' && <InvoiceTab />}
+
+        {/* Sent Emails Tab */}
+        {activeTab === 'sentEmails' && <SentEmailsTab />}
 
         {/* Files Tab */}
         {activeTab === 'files' &&
